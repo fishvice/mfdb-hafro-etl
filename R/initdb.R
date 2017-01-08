@@ -2,14 +2,13 @@
 library(mfdb)
 library(geo)
 library(tidyverse)
-library(dplyrOracle)
 library(mar)
 library(purrr)
 library(tidyr)
 library(stringr)
 
 
-## oracle connection from https://github.com/tomasgreif/dplyrOracle
+## oracle connection from https://github.com/fishvice/dplyrOracle
 mar <- dplyrOracle::src_oracle("mar")
 
 ## Create connection to MFDB database, as the Icelandic case study
@@ -28,7 +27,7 @@ reitmapping <- read.table(
   unnest(size=.out %>% map('result')) %>% 
   select(-.out) %>% 
   na.omit()
-
+db_drop_table(mar$con,'reitmapping')
 copy_to(mar,reitmapping,'reitmapping',overwrite=TRUE)
 
 mfdb_import_area(mdb, 
@@ -93,64 +92,100 @@ mfdb_import_sampling_type(mdb, data.frame(
 
 ## Import length distribution from commercial catches
 ## 1 inspectors, 2 hafro, 8 on-board discard
+vessel_map <- 
+  lesa_stodvar(mar) %>% 
+  select(synis_id,dags,skip) %>% 
+  left_join(tbl_mar(mar,'kvoti.skipasaga') %>% 
+              select(skip=skip_nr,saga_nr,i_gildi,ur_gildi)) %>%
+  filter((dags > i_gildi & dags <= ur_gildi) | is.na(skip) | is.na(i_gildi)) %>% 
+  select(synis_id,skip,saga_nr)
+
+
 stations <-
   lesa_stodvar(mar) %>% 
+  left_join(vessel_map) %>% 
+  mutate(saga_nr = nvl(saga_nr,0)) %>% 
   filter(synaflokkur %in% c(1,2,8,10,12,30,34,35)) %>% 
   mutate(sampling_type = ifelse(synaflokkur %in% c(1,2,8),'SEA',
                                 ifelse(synaflokkur %in% c(10,12),'CAP',
                                        ifelse(synaflokkur == 30,'IGFS',
                                               ifelse(synaflokkur==35,'AUT','SMN')))),
          man = ifelse(synaflokkur == 30, 3,
-                      ifelse(synaflokkur == 35,10,man))) %>% 
+                      ifelse(synaflokkur == 35,10,man)),
+         institute = 'MRI',
+         vessel = concat(concat(skip,'-'),saga_nr)) %>% 
   left_join(tbl(mar,'gear_mapping'),by='veidarfaeri') %>% 
-  #mutate(smareitur = nvl(smareitur,10*reitur)) %>% 
   select(synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
-         gear,sampling_type,depth=dypi_kastad,smareitur,vessel = skip) %>% 
-  #mutate(lat = nvl(lat,sr2d(smareitur,1)*10000),
-  #       lon = nvl(lon,sr2d(smareitur,0)*10000)) %>% 
-  select(-smareitur) %>% 
+         gear,sampling_type,depth=dypi_kastad,vessel) %>% 
   mutate(lat=nvl(lat,0),lon=nvl(lon,0)) %>% 
   mutate(areacell=d2sr(lat,lon),
          lon1 = nvl(lon1,lon),
          lat1 = nvl(lat1,lat)) %>% 
   filter(sampling_type=='IGFS') %>%
-#  mutate(length = arcdist(lat,lon,lat1,lon1)) %>%  
+  mutate(length = arcdist(lat,lon,lat1,lon1)) %>%
+#  mutate(length = 4) %>% 
   select(-c(lat1,lon1)) %>% 
   inner_join(tbl(mar,'reitmapping') %>% 
                select(areacell=GRIDCELL),
              by='areacell') %>% 
-  rename(tow_id=synis_id,year = ar, month = man,latitude =lat,longitude = lon)
+  rename(tow=synis_id,year = ar, month = man,latitude =lat,longitude = lon)
 
-## Skoða seinna
-if(FALSE){
+
 ## information on tows
   stations %>% 
+    rename(name = tow) %>% 
     collect(n=Inf) %>% 
     as.data.frame() %>% 
     mfdb_import_tow_taxonomy(mdb,.)
   
   ## information on vessels
+  
+vessel_type_new <- 
+  read_csv('inst/vessel_type.csv') %>% 
+  rename(name=vessel_type) %>% 
+  mutate(id=1:n())
+  
+mfdb:::mfdb_import_taxonomy(mdb,'vessel_type',vessel_type_new)  
+
   tmp <- 
-    mar:::ora_table(mar,'kvoti.skipasaga') %>% 
-    left_join(mar:::ora_table(mar,'kvoti.skip_extra') %>% 
+    tbl_mar(mar,'kvoti.skipasaga') %>% 
+    left_join(tbl_mar(mar,'kvoti.skip_extra') %>% 
                 select(skip_nr, power=orka_velar_1)) %>% 
-    left_join(mar:::ora_table(mar,'kvoti.utg_fl') %>% 
-                select(flokkur,vessel_type = heiti,enskt_heiti)) %>% 
-    select(name=skip_nr,saga_nr,vessel_type,tonnage = brl,power,
-           full_name = heiti,length=lengd,enskt_heiti) %>% 
+    left_join(tbl_mar(mar,'kvoti.utg_fl') %>% 
+                mutate(vessel_type = decode(flokkur,-6,'GOV',-4,'FGN',
+                                            -3,'NON',
+                                            0,'NON',
+                                            1,'NON',
+                                            3,'RSH',
+                                            11,'FRZ',
+                                            99,'JIG',
+                                            98,'JIG',
+                                            -8,'DIV',
+                                            100,'JIG',
+                                            101,'JIG',
+                                            6,'JIG',
+                                            'COM')) %>% 
+                select(flokkur,vessel_type)) %>% 
+    mutate(name = concat(concat(skip_nr,'-'),saga_nr)) %>% 
+    select(name,vessel_type,tonnage = brl,power,
+           full_name = heiti,length=lengd) %>% 
     collect(n=Inf) %>% 
     as.data.frame() %>% 
     mfdb_import_vessel_taxonomy(mdb,.)
   
-}
-
+  
+  
+mfdb_import_vessel_taxonomy(mdb,data.frame(name='-0',length=NA,tonnage=NA,power=NA,full_name = 'Unknown vessel'))
+  
+  
 ## length distributions
 ldist <- 
   lesa_lengdir(mar) %>%
   inner_join(tbl(mar,'species_key')) %>% 
   skala_med_toldum() %>% 
-  rename(tow_id=synis_id) %>%  
-  right_join(stations) %>% 
+  rename(tow=synis_id) %>%  
+  right_join(stations %>% 
+               select(-length)) %>% 
   mutate(lengd = ifelse(is.na(lengd), 0, lengd),
          fjoldi = ifelse(is.na(fjoldi), 0, fjoldi),
          r = ifelse(is.na(r), 1 , r),
@@ -163,22 +198,23 @@ ldist <-
   collect(n=Inf) %>% 
   as.data.frame()
 
+
 mfdb_import_survey(mdb,
                    data_source = 'iceland-ldist',
-                   ldist %>% select(-vessel))
-rm(ldist)
+                   ldist)
 
 ## age -- length data
 aldist <-
   lesa_kvarnir(mar) %>% 
-  rename(tow_id=synis_id) %>% 
-  right_join(stations) %>% 
+  rename(tow=synis_id) %>% 
+  right_join(stations %>% 
+               select(-length)) %>%
   inner_join(tbl(mar,'species_key')) %>%
   mutate(lengd = ifelse(is.na(lengd), 0, lengd),
          count = 1,
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M',NA)),
          kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)))%>%
-  select(tow_id, latitude,longitude, year,month, areacell, gear,
+  select(tow, latitude,longitude, year,month, areacell, gear, vessel,
          sampling_type,count,species,
          age=aldur,sex=kyn,maturity_stage = kynthroski,
          length = lengd, no = nr, weight = oslaegt,
@@ -190,7 +226,7 @@ aldist <-
 mfdb_import_survey(mdb,
                    data_source = 'iceland-aldist',
                    aldist)
-rm(aldist)
+
 ## landings 
 port2division <- function(hofn){
   hafnir.numer <- rep(0,length(hofn))
@@ -240,40 +276,60 @@ bind_rows(
 
 
 ## catches 
-
+landings_map <- 
+  mar:::lods_oslaegt(mar) %>%
+  left_join(tbl_mar(mar,'kvoti.skipasaga'), by='skip_nr') %>% 
+  filter(l_dags < ur_gildi, l_dags > i_gildi) %>% 
+  select(skip_nr,saga_nr,komunr,hofn) %>% 
+  distinct()
 
 landed_catch <- 
-  mar:::lods_oslaegt(mar) %>%
+  mar:::lods_oslaegt(mar) %>%   
+  left_join(landings_map) %>% 
   filter(ar > 1993) %>% 
-  select(veidarfaeri, skip_nr,  fteg,
-         ar, man, hofn, magn_oslaegt, veidisvaedi, l_dags) %>% 
+  select(veidarfaeri, skip_nr, fteg,
+         ar, man, hofn, magn_oslaegt, 
+         veidisvaedi, l_dags, saga_nr) %>% 
   dplyr::union_all(tbl(mar,'landed_catch_pre94') %>% 
-                     mutate(l_dags = to_date(concat(ar,man),'yyyymm'))) %>% 
-  left_join(tbl_mar(mar,'kvoti.skipasaga'), by='skip_nr') %>% 
-  mutate(ur_gildi = nvl(ur_gildi,to_date('01.01.2099','dd.mm.yyyy')),
-         i_gildi =  nvl(i_gildi,to_date('01.01.1970','dd.mm.yyyy'))) %>% 
-  filter(l_dags < ur_gildi, l_dags > i_gildi) %>% 
+                     mutate(l_dags = to_date(concat(ar,man),'yyyymm'),
+                            saga_nr = 0)) %>%
+  left_join(tbl_mar(mar,'kvoti.skipasaga'), by=c('skip_nr','saga_nr')) %>% 
+  mutate(vessel = concat(concat(nvl(skip_nr,''),'-'),nvl(saga_nr,0)),
+         flokkur = nvl(flokkur,0)) %>% 
   #select(skip_nr,hofn,l_dags,saga_nr,gerd,fteg,kfteg,veidisvaedi,stada,veidarfaeri,magn_oslaegt, i_gildi,flokkur,ar,man) %>% 
-  filter(veidisvaedi == 'I',nvl(flokkur,0) != -4) %>% 
-  left_join( tbl(mar,'gear_mapping'),by='veidarfaeri') %>%
-  inner_join( tbl(mar,'species_key'),by=c('fteg'='tegund')) %>%
+  filter(veidisvaedi == 'I',flokkur != -4) %>% 
+  left_join(tbl(mar,'gear_mapping'),by='veidarfaeri') %>%
+  inner_join(tbl(mar,'species_key'),by=c('fteg'='tegund')) %>%
   left_join(tbl(mar,'port2sr'),by='hofn') %>%
   mutate(sampling_type='LND',
          gear = ifelse(is.na(gear),'LLN',gear)) %>% 
-  select(count=magn_oslaegt,sampling_type,areacell, species,year=ar,month=man,
-         gear) 
-
-
-landed_catch %>% 
-  filter(species == 'LIN') %>% 
-  group_by(year) %>% 
-  #summarise(catch=sum(ifelse(year>1995,count,count/0.8))/1000) %>% 
-  summarise(catch=sum(count)/1000) %>% 
-  arrange(desc(year)) %>% collect(n=Inf) -> tmp
-  View()
+  select(count=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
+         gear)
 
 
 
+foreign_landed_catch <- 
+  mar:::lods_oslaegt(mar) %>%   
+  left_join(landings_map) %>% 
+  filter(ar > 2013) %>% 
+  select(veidarfaeri, skip_nr, fteg,
+         ar, man, hofn, magn_oslaegt, 
+         veidisvaedi, l_dags, saga_nr) %>% 
+  left_join(tbl_mar(mar,'kvoti.skipasaga'), by=c('skip_nr','saga_nr')) %>% 
+  mutate(vessel = concat(concat(nvl(skip_nr,''),'-'),nvl(saga_nr,0)),
+         flokkur = nvl(flokkur,0)) %>% 
+  #select(skip_nr,hofn,l_dags,saga_nr,gerd,fteg,kfteg,veidisvaedi,stada,veidarfaeri,magn_oslaegt, i_gildi,flokkur,ar,man) %>% 
+  filter(veidisvaedi == 'I',flokkur == -4) %>% 
+  left_join(tbl(mar,'gear_mapping'),by='veidarfaeri') %>%
+  inner_join(tbl(mar,'species_key'),by=c('fteg'='tegund')) %>%
+  left_join(tbl(mar,'port2sr'),by='hofn') %>%
+  mutate(sampling_type='FLND',
+         gear = ifelse(is.na(gear),'LLN',gear)) %>% 
+  select(count=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
+         gear)
+
+mfdb_import_survey(mdb,data_source = 'lods.foreign.landings',
+                   foreign_landed_catch %>% collect(n=Inf) %>% as.data.frame())
 
 url <- 'http://data.hafro.is/assmt/2016/'
 
@@ -334,20 +390,47 @@ landingsByYear <-
   })
 
 
-landingsByYear %>% filter(species == 'ling') %>% 
-  rename(year=Year) %>% 
-  left_join(tmp) %>% 
-  filter(year %in% 1994:1995) %>% 
-  select(year,Iceland,catch) %>% 
-  mutate(r=catch/Iceland)
-  ggplot(aes(year,catch/Iceland)) + geom_line() 
+landed_catch %>% 
+  group_by(species,year) %>% 
+  #summarise(catch=sum(ifelse(year>1995,count,count/0.8))/1000) %>% 
+  summarise(catch=sum(count)/1000) %>% 
+  arrange(desc(year)) %>% collect(n=Inf) -> tmp
+
+
+
+ling_tusk_scalar <- 
+  landingsByYear %>%
+  filter(species %in% c('tusk','ling')) %>% 
+  left_join(spitToDST2) %>% 
+  select(Year:Total,species=shortname)%>% 
+  rename(year=Year) %>% inner_join(tmp) %>%
+  mutate(r=Iceland/catch) %>% 
+  filter(year %in% 1993:1996) %>% 
+  select(year,species,r)
+
+landings <- 
+  landed_catch %>% 
+  collect(n=Inf) %>% 
+  left_join(ling_tusk_scalar) %>% 
+  mutate(count = ifelse(is.na(r),count,r*count)) 
+
+mfdb_import_survey(mdb,
+                   data_source = 'commercial.landings',
+                   data_in = landings %>% 
+                     select(-r) %>% 
+                     filter(!(vessel %in% c('1694-0','5000-0','5059-0',
+                                            '5688-0','5721-0','8076-0','8091-0','9083-0')),
+                            count >0,
+                            !is.na(count)) %>% 
+                     as.data.frame())
+
 
 
 landingsByMonth <-
   landingsByYear %>%
   filter(species!='capelin') %>% 
   left_join(spitToDST2) %>%
-  inner_join(tbl(mar,'species_key') %>% collect(), by = c('shortname'='species')) %>% 
+  #inner_join(tbl(mar,'species_key') %>% collect(), by = c('shortname'='species')) %>% 
   filter(!is.na(shortname) & !is.na(Year)) %>%
   select(shortname,Year,Iceland,Total) %>%
   left_join((expand.grid(Year=1905:2015,month=1:12))) %>%
@@ -364,15 +447,20 @@ landingsByMonth <-
   as.data.frame()
 
 
+landingsByYear %>%
+  filter(species!='capelin') %>% 
+  left_join(spitToDST2) %>% 
+  select(Year,Iceland) %>% 
+
 
 mfdb_import_survey(mdb,
                    data_source = 'foreign.landings',
-                   landingsByMonth)
+                   landingsByMonth %>% filter(species != 'QUA',year< 2014))
 
 oldLandingsByMonth <-
   landingsByYear %>%
   left_join(spitToDST2) %>%
-  inner_join(tbl(mar,'species_key') %>% collect(), by = c('shortname'='species')) %>%
+#  inner_join(tbl(mar,'species_key') %>% collect(), by = c('shortname'='species')) %>%
   filter(!is.na(shortname) & !is.na(Year) &  Year < 1982) %>%
   select(shortname,Year,Others,Total) %>%
   left_join(expand.grid(Year=1905:1981,month=1:12)) %>%
