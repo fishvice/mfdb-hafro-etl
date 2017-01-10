@@ -1,6 +1,5 @@
-## devtools::install_github('mareframe/mfdb',ref='4.x')
+## devtools::install_github('mareframe/mfdb',ref='5.x')
 library(mfdb)
-library(geo)
 library(tidyverse)
 library(mar)
 library(purrr)
@@ -135,14 +134,13 @@ stations %>%
   collect(n=Inf) %>% 
   copy_to(mar,.,'stations')
 
-tbl(mar,'stations')
-
 db_create_indexes(mar$con,'stations',indexes = list('tow'))
 ## information on tows
-  stations %>% 
+  tbl(mar,'stations') %>% 
     rename(name = tow) %>% 
     collect(n=Inf) %>% 
-    as.data.frame() %>% 
+    as.data.frame() %>%
+    mutate(name = ifelse(name == 1e5, '100000',ifelse(name == 4e5,'400000',as.character(name)))) %>% 
     mfdb_import_tow_taxonomy(mdb,.)
   
   ## information on vessels
@@ -201,7 +199,7 @@ ldist <-
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
          kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)),
          age = 0)%>%
-  select(-c(r,tegund,uppruni)) %>% 
+  select(-c(r,tegund,uppruni_lengdir)) %>% 
   rename(sex=kyn,maturity_stage = kynthroski,
          length = lengd,count=fjoldi) %>% 
   collect(n=Inf) %>% 
@@ -366,7 +364,7 @@ landed_catch <-
   left_join(tbl(mar,'port2sr'),by='hofn') %>%
   mutate(sampling_type='LND',
          gear = ifelse(is.na(gear),'LLN',gear)) %>% 
-  select(count=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
+  select(weight_total=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
          gear)
 
 
@@ -388,7 +386,7 @@ foreign_landed_catch <-
   left_join(tbl(mar,'port2sr'),by='hofn') %>%
   mutate(sampling_type='FLND',
          gear = ifelse(is.na(gear),'LLN',gear)) %>% 
-  select(count=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
+  select(weight_total=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
          gear)
 
 mfdb_import_survey(mdb,data_source = 'lods.foreign.landings',
@@ -456,7 +454,7 @@ landingsByYear <-
 landed_catch %>% 
   group_by(species,year) %>% 
   #summarise(catch=sum(ifelse(year>1995,count,count/0.8))/1000) %>% 
-  summarise(catch=sum(count)/1000) %>% 
+  summarise(catch=sum(weight_total)/1000) %>% 
   arrange(desc(year)) %>% collect(n=Inf) -> tmp
 
 
@@ -475,7 +473,7 @@ landings <-
   landed_catch %>% 
   collect(n=Inf) %>% 
   left_join(ling_tusk_scalar) %>% 
-  mutate(count = ifelse(is.na(r),count,r*count)) 
+  mutate(weight_total = ifelse(is.na(r),weight_total,r*weight_total)) 
 
 mfdb_import_survey(mdb,
                    data_source = 'commercial.landings',
@@ -483,8 +481,8 @@ mfdb_import_survey(mdb,
                      select(-r) %>% 
                      filter(!(vessel %in% c('1694-0','5000-0','5059-0',
                                             '5688-0','5721-0','8076-0','8091-0','9083-0')),
-                            count >0,
-                            !is.na(count)) %>% 
+                            weight_total >0,
+                            !is.na(weight_total)) %>% 
                      as.data.frame())
 
 
@@ -501,7 +499,7 @@ landingsByMonth <-
          sampling_type = 'FLND', 
          species = shortname,
          Others = Total - Iceland,
-         count = 1000*Others/12,
+         weight_total = 1000*Others/12,
          gear = 'LLN', ## this needs serious consideration
          areacell = 2741) %>% ## just to have something
   mutate(shortname = NULL,
@@ -525,7 +523,7 @@ oldLandingsByMonth <-
   mutate(year = Year,
          sampling_type = 'OLND', 
          species = shortname,
-         count = 1000*(Total - Others)/12,
+         weight_total = 1000*(Total - Others)/12,
          gear = 'BMT', ## this needs serious consideration
          areacell = 2741) %>% ## just to have something
   mutate(shortname = NULL,
