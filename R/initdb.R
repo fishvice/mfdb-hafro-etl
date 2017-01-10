@@ -50,10 +50,10 @@ mfdb_import_temperature(mdb,
 ## species mapping
 db_drop_table(mar$con,'species_key')
 data.frame(tegund =  c(1:11, 19, 21, 22,
-                       23, 25, 27, 30, 31, 48, 14 ),
+                       23, 25, 27, 30, 31, 48, 14,24 ),
            species = c('COD','HAD','POK','WHG','RED','LIN','BLI','USK',
                        'CAA','RNG','REB','GSS','HAL','GLH',
-                       'PLE','WIT','DAB','HER','CAP','LUM','MON')) %>% 
+                       'PLE','WIT','DAB','HER','CAP','LUM','MON','LEM')) %>% 
   copy_to(mar,.,'species_key')
 
 ## gear mapping
@@ -78,15 +78,16 @@ copy_to(dest = mar,
 ## Set-up sampling types
 
 mfdb_import_sampling_type(mdb, data.frame(
-  id = 1:16,
+  id = 1:17,
   name = c('SEA', 'IGFS','AUT','SMN','LND','LOG','INS','ACU','FLND','OLND','CAA',
-           'CAP','GRE','FAER','RED','RAC'),
+           'CAP','GRE','FAER','RED','RAC','LOBS'),
   description = c('Sea sampling', 'Icelandic ground fish survey',
                   'Icelandic autumn survey','Icelandic gillnet survey',
                   'Landings','Logbooks','Icelandic nephrop survey',
                   'Acoustic capelin survey','Foreign vessel landings','Old landings (pre 1981)',
                   'Old catch at age','Capelin data','Eastern Greenland autumn survey',
-                  'Faeroese summer survey','Redfish survey','Redfish accoustic survey')))
+                  'Faeroese summer survey','Redfish survey','Redfish accoustic survey',
+                  'Icelandic nephrops survey')))
 
 ## stations table
 
