@@ -12,6 +12,17 @@ $ sudo systemctl enable postgresql
 ```
 $ su - posgres
 $ psql 
-postgres=# CREATE USER lentinj
-postgres=# CREATE DATABASE mf OWNER lentinj;
+postgres=# CREATE USER bthe
+postgres=# CREATE DATABASE mf OWNER bthe;
+```
+## DB setup
+The setup for the MFRI MFDB version "should" be as straight forward as simply:
+```
+source('R/initdb.R')
+```
+but life is never so simple. The script depend on one users database privileges so you milage may vary. Notably the users needs to be able to setup local temporary tables on `mar`. But there is an easy way out. A backup of the database is stored on `/u2/reikn/Tac/2017/mfdb_dump` (or equivalent path when using laptops) so the user simply needs to restore the DB from this backup like so:
+```
+cp /u2/reikn/Tac/mfdb_dump/iceland_18012017.tar.gz .
+gunzip iceland_18012017.tar.gz
+pg_restore --clean -d mf iceland_18012017.tar
 ```
