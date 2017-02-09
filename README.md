@@ -10,7 +10,7 @@ $ sudo systemctl enable postgresql
 ```
  and the follow the instructions on github.com/mareframe/mfdb, specifically:
 ```
-$ su - posgres
+$ su - postgres
 $ psql 
 postgres=# CREATE USER bthe
 postgres=# CREATE DATABASE mf OWNER bthe;
@@ -24,5 +24,5 @@ but life is never so simple. The script depend on one users database privileges 
 ```
 cp /u2/reikn/Tac/mfdb_dump/iceland_18012017.tar.gz .
 gunzip iceland_18012017.tar.gz
-pg_restore --clean -d mf iceland_18012017.tar
+pg_restore --no-owner --role=notandi --clean -d mf iceland_18012017.tar
 ```
