@@ -40,6 +40,7 @@ mfdb_import_division(mdb,
                                  'SUBDIVISION',
                                  function(x) x$GRIDCELL))
 
+## here some work on temperature would be nice to have instead of fixing the temperature
 mfdb_import_temperature(mdb, 
                         expand.grid(year=1960:2016,
                                     month=1:12,
@@ -93,6 +94,7 @@ mfdb_import_sampling_type(mdb, data.frame(
 
 ## Import length distribution from commercial catches
 ## 1 inspectors, 2 hafro, 8 on-board discard
+db_drop_table(mar$con,'vessel_map')
 vessel_map <- 
   lesa_stodvar(mar) %>% 
   select(synis_id,dags,skip) %>% 
@@ -100,19 +102,19 @@ vessel_map <-
               select(skip=skip_nr,saga_nr,i_gildi,ur_gildi)) %>%
   filter((dags > i_gildi & dags <= ur_gildi) | is.na(skip) | is.na(i_gildi)) %>% 
   select(synis_id,skip,saga_nr) %>% 
-  collect(n=Inf) %>% 
-  copy_to(mar,.,'vessel_map')
+  compute(name='vessel_map',temporary=FALSE)
 
 
 stations <-
   lesa_stodvar(mar) %>% 
   left_join(tbl(mar,'vessel_map')) %>% 
   mutate(saga_nr = nvl(saga_nr,0)) %>% 
-  filter(synaflokkur %in% c(1,2,8,10,12,30,34,35)) %>% 
+  filter(synaflokkur %in% c(1,2,8,10,12,30,34,35,38)) %>% 
   mutate(sampling_type = ifelse(synaflokkur %in% c(1,2,8),'SEA',
                                 ifelse(synaflokkur %in% c(10,12),'CAP',
                                        ifelse(synaflokkur == 30,'IGFS',
-                                              ifelse(synaflokkur==35,'AUT','SMN')))),
+                                              ifelse(synaflokkur==35,'AUT',
+                                                     ifelse(synaflokkur==38,'LOBS','SMN'))))),
          man = ifelse(synaflokkur == 30, 3,
                       ifelse(synaflokkur == 35,10,man)),
          institute = 'MRI',
@@ -131,11 +133,10 @@ stations <-
              by='areacell') %>% 
   rename(tow=synis_id,year = ar, month = man,latitude =lat,longitude = lon)
 
+db_drop_table(mar$con,'stations')
 stations %>% 
-  collect(n=Inf) %>% 
-  copy_to(mar,.,'stations')
+  compute(name='stations',temporary=FALSE,indexes = list('tow'))
 
-db_create_indexes(mar$con,'stations',indexes = list('tow'))
 ## information on tows
   tbl(mar,'stations') %>% 
     rename(name = tow) %>% 
@@ -185,10 +186,12 @@ mfdb_import_vessel_taxonomy(mdb,data.frame(name='-0',length=NA,tonnage=NA,power=
   
   
 ## length distributions
+db_drop_table(mar$con,'ldist')
 lesa_lengdir(mar) %>%
   inner_join(tbl(mar,'species_key')) %>% 
   skala_med_toldum() %>% 
-  rename(tow=synis_id) %>% collect(n=Inf) %>% copy_to(mar,.,'ldist')  
+  rename(tow=synis_id) %>% 
+  compute(name='ldist',temporary=FALSE)
 
 ldist <- 
   tbl(mar,'ldist') %>% 
@@ -259,7 +262,7 @@ mfdb_import_tow_taxonomy(mdb,data.frame(name=c(1e5,4e5),latitude=c(64.69183,65.2
 
 mfdb_import_survey(mdb,
                    data_source = 'iceland-ldist',
-                   ldist %>% filter(!(tow %in% c(1e5,4e5))))
+                   ldist %>% filter(!(tow %in% c(1e5,4e5))) %>% mutate(vessel =ifelse(vessel=='-0',NA,vessel) ))
 
 
 ## age -- length data
@@ -287,7 +290,9 @@ aldist <-
 
 mfdb_import_survey(mdb,
                    data_source = 'iceland-aldist',
-                   aldist%>% filter(!(tow %in% c(1e5,4e5))))
+                   aldist%>% 
+                     filter(!(tow %in% c(1e5,4e5))) %>% 
+                     mutate(vessel =ifelse(vessel=='-0',NA,vessel)))
 
 ## landings 
 port2division <- function(hofn){
@@ -467,7 +472,7 @@ ling_tusk_scalar <-
   select(Year:Total,species=shortname)%>% 
   rename(year=Year) %>% inner_join(tmp) %>%
   mutate(r=Iceland/catch) %>% 
-  filter(year %in% 1993:1996) %>% 
+  filter(year %in% 1993:2005) %>% 
   select(year,species,r)
 
 landings <- 
@@ -480,6 +485,7 @@ mfdb_import_survey(mdb,
                    data_source = 'commercial.landings',
                    data_in = landings %>% 
                      select(-r) %>% 
+                     mutate(vessel =ifelse(vessel=='-0',NA,vessel)) %>% 
                      filter(!(vessel %in% c('1694-0','5000-0','5059-0',
                                             '5688-0','5721-0','8076-0','8091-0','9083-0')),
                             weight_total >0,
@@ -536,4 +542,28 @@ mfdb_import_survey(mdb,
                    data_source = 'old.landings',
                    oldLandingsByMonth)
 
+## statlant data, need to look further into this
+load('~einarhj/r/Pakkar/landr/data/lices.rda')
+tmp <- 
+  lices %>%
+  filter(as.numeric(sare)==5,tolower(div)=='a',
+         grepl('Ling',species)|grepl('usk',species),
+         country2 != 'Iceland',
+         year > 1984 & ref=='1985_2012' & descr=='5_A'| year < 1985) %>%
+  distinct() %>%  
+  bind_rows(data_frame(year=2013,
+                       species=c('Ling','USK'),
+                       landings = c(1324, 1284))) %>% 
+  left_join(expand.grid(year=1905:2015,month=1:12)) %>%
+  mutate(species=ifelse(species=='Ling','LIN','USK'),
+         weight_total=landings*1e3/12,
+         sampling_type = 'FLND',
+         gear = 'LLN', ## this needs serious consideration
+         areacell = 2741) %>% 
+  select(year,month,species,weight_total,gear,areacell,sampling_type) %>% 
+  na.omit() %>% 
+  as.data.frame() %>% 
+  mfdb_import_survey(mdb,
+                     data_source = 'statlant.foreign.landings',
+                     .)
 
