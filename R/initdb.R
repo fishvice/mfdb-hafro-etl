@@ -3,12 +3,15 @@ library(mfdb)
 library(tidyverse)
 library(mar)
 library(purrr)
+library(purrrlyr)
 library(tidyr)
 library(stringr)
+library(ROracle)
+library(dbplyr)
 
 
-## oracle connection from https://github.com/fishvice/dplyrOracle
-mar <- dplyrOracle::src_oracle("mar")
+## oracle connection 
+mar <- dbConnect(dbDriver('Oracle'))
 
 ## Create connection to MFDB database, as the Icelandic case study
 mdb <- mfdb('Iceland')#,db_params = list(host='hafgeimur.hafro.is'))
@@ -26,15 +29,18 @@ reitmapping <- read.table(
   unnest(size=.out %>% map('result')) %>% 
   select(-.out) %>% 
   na.omit()
-db_drop_table(mar$con,'reitmapping')
-copy_to(mar,reitmapping,'reitmapping',overwrite=TRUE)
 
+dbWriteTable(mar,'reitmapping',as.data.frame(reitmapping),overwrite=TRUE)
+
+## import the area definitions into mfdb
 mfdb_import_area(mdb, 
                  reitmapping %>% 
                    select(id,
                           name=GRIDCELL,
-                          size)) 
+                          size) %>% 
+                   as.data.frame()) 
 
+## create area division (used for e.g. bootstrapping)
 mfdb_import_division(mdb,
                      plyr::dlply(reitmapping,
                                  'SUBDIVISION',
@@ -42,20 +48,19 @@ mfdb_import_division(mdb,
 
 ## here some work on temperature would be nice to have instead of fixing the temperature
 mfdb_import_temperature(mdb, 
-                        expand.grid(year=1960:2016,
+                        expand.grid(year=1960:2020,
                                     month=1:12,
                                     areacell = reitmapping$GRIDCELL,
                                     temperature = 3))
 
 ## BEGIN hack
 ## species mapping
-db_drop_table(mar$con,'species_key')
 data.frame(tegund =  c(1:11, 19, 21, 22,
                        23, 25, 27, 30, 31, 48, 14,24 ),
            species = c('COD','HAD','POK','WHG','RED','LIN','BLI','USK',
                        'CAA','RNG','REB','GSS','HAL','GLH',
                        'PLE','WIT','DAB','HER','CAP','LUM','MON','LEM')) %>% 
-  copy_to(mar,.,'species_key')
+  dbWriteTable(mar,'species_key',.,overwrite = TRUE)
 
 ## gear mapping
 ice.gear <-
@@ -71,10 +76,11 @@ mapping <-
          description=NULL)
 names(mapping)[2] <- 'gear'
 mapping$gear <- as.character(mapping$gear)
-db_drop_table(mar$con,'gear_mapping')
-copy_to(dest = mar, 
-        df = mapping,
-        name = 'gear_mapping')
+
+dbWriteTable(conn = mar, 
+             value = mapping,
+             name = 'gear_mapping',
+             overwrite = TRUE)
 
 ## Set-up sampling types
 
@@ -94,13 +100,13 @@ mfdb_import_sampling_type(mdb, data.frame(
 
 ## Import length distribution from commercial catches
 ## 1 inspectors, 2 hafro, 8 on-board discard
-db_drop_table(mar$con,'vessel_map')
+dbRemoveTable(mar,'vessel_map')
 vessel_map <- 
   lesa_stodvar(mar) %>% 
   select(synis_id,dags,skip) %>% 
   left_join(tbl_mar(mar,'kvoti.skipasaga') %>% 
               select(skip=skip_nr,saga_nr,i_gildi,ur_gildi)) %>%
-  filter((dags > i_gildi & dags <= ur_gildi) | is.na(skip) | is.na(i_gildi)) %>% 
+  filter((dags > i_gildi & dags <= ur_gildi) | nvl(skip,-999)==-999 | nvl(i_gildi,to_date('01.01.2100','dd.mm.yyyy'))==to_date('01.01.2100','dd.mm.yyyy')) %>% 
   select(synis_id,skip,saga_nr) %>% 
   compute(name='vessel_map',temporary=FALSE)
 
@@ -115,25 +121,33 @@ stations <-
                                        ifelse(synaflokkur == 30,'IGFS',
                                               ifelse(synaflokkur==35,'AUT',
                                                      ifelse(synaflokkur==38,'LOBS','SMN'))))),
-         man = ifelse(synaflokkur == 30, 3,
+         ## This is a March survey but Gadget stocks recruit after being predated, -> bump the timing to next quarter
+         man = ifelse(synaflokkur == 30, 4,   
                       ifelse(synaflokkur == 35,10,man)),
          institute = 'MRI',
          vessel = concat(concat(skip,'-'),saga_nr)) %>% 
   left_join(tbl(mar,'gear_mapping'),by='veidarfaeri') %>% 
   select(synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
-         gear,sampling_type,depth=dypi_kastad,vessel) %>% 
-  mutate(lat=nvl(lat,0),lon=nvl(lon,0)) %>% 
-  mutate(areacell=d2sr(lat,lon),
-         lon1 = nvl(lon1,lon),
-         lat1 = nvl(lat1,lat)) %>% 
+         gear,sampling_type,depth=dypi_kastad,vessel,reitur,smareitur) %>% 
+  ## this part will be fixed in the db soon
+  mutate(lat=nvl(geoconvert1(lat),0),
+         lon=nvl(geoconvert1(lon),0)) %>% 
+  mutate(areacell=10*reitur+nvl(smareitur,1),
+         ## this bit should also be fixed soon
+         lon1 = nvl(geoconvert1(lon1),lon),
+         lat1 = nvl(geoconvert1(lat1),lat)) %>% 
   mutate(length = arcdist(lat,lon,lat1,lon1)) %>%
-  select(-c(lat1,lon1)) %>% 
+  select(-c(lat1,lon1,reitur,smareitur)) %>% 
   inner_join(tbl(mar,'reitmapping') %>% 
                select(areacell=GRIDCELL),
              by='areacell') %>% 
-  rename(tow=synis_id,year = ar, month = man,latitude =lat,longitude = lon)
+  rename(tow=synis_id) %>% 
+  rename(year = ar) %>% 
+  rename(month = man) %>% 
+  rename(latitude =lat) %>% 
+  rename(longitude = lon)
 
-db_drop_table(mar$con,'stations')
+dbRemoveTable(mar,'stations')
 stations %>% 
   compute(name='stations',temporary=FALSE,indexes = list('tow'))
 
@@ -186,7 +200,7 @@ mfdb_import_vessel_taxonomy(mdb,data.frame(name='-0',length=NA,tonnage=NA,power=
   
   
 ## length distributions
-db_drop_table(mar$con,'ldist')
+dbRemoveTable(mar,'ldist')
 lesa_lengdir(mar) %>%
   inner_join(tbl(mar,'species_key')) %>% 
   skala_med_toldum() %>% 
@@ -198,18 +212,20 @@ ldist <-
   right_join(tbl(mar,'stations') %>% 
                select(-length),
              by = 'tow') %>% 
-  mutate(lengd = ifelse(is.na(lengd), 0, lengd),
-         fjoldi = ifelse(is.na(fjoldi), 0, fjoldi),
+  mutate(lengd = nvl(lengd,0), #ifelse(is.na(lengd), 0, lengd),
+         fjoldi = nvl(fjoldi,0), #ifelse(is.na(fjoldi), 0, fjoldi),
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
          kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)),
          age = 0)%>%
   select(-c(r,tegund,uppruni_lengdir)) %>% 
-  rename(sex=kyn,maturity_stage = kynthroski,
-         length = lengd,count=fjoldi) %>% 
+  rename(sex=kyn) %>% 
+  rename(maturity_stage = kynthroski) %>% 
+  rename(length = lengd) %>% 
+  rename(count=fjoldi) %>% 
   collect(n=Inf) %>% 
   as.data.frame()
 
-
+## this is just a fix for vessels not in skipasaga
 mfdb_import_vessel_taxonomy(mdb,
                             data.frame(name=c('1010-0','1015-0','1018-0','1026-0','1027-0','103-0','1034-0','1038-0','104-0','1041-0',
                                               '105-0','1050-0','1058-0','1059-0','1065-0','1069-0','1085-0','1086-0','109-0','1096-0',
@@ -256,8 +272,8 @@ mfdb_import_vessel_taxonomy(mdb,
                                        length=NA,tonnage=NA,power=NA,full_name = 'Old unknown vessel'))
 
 
-mfdb_import_tow_taxonomy(mdb,data.frame(name=c(1e5,4e5),latitude=c(64.69183,65.26833), longitude =c( -25.0890, -23.5125),
-                                        depth=c(201,54),length=c(4,4)))
+#mfdb_import_tow_taxonomy(mdb,data.frame(name=c(1e5,4e5),latitude=c(64.69183,65.26833), longitude =c( -25.0890, -23.5125),
+#                                        depth=c(201,54),length=c(4,4)))
 
 
 mfdb_import_survey(mdb,
@@ -275,7 +291,7 @@ aldist <-
   inner_join(tbl(mar,'species_key')) %>%
   right_join(tbl(mar,'stations') %>% 
                select(-length)) %>%
-  mutate(lengd = ifelse(is.na(lengd), 0, lengd),
+  mutate(lengd = nvl(lengd,0),
          count = 1,
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M',NA)),
          kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)))%>%
@@ -313,14 +329,14 @@ port2division <- function(hofn){
 gridcell.mapping <-
   plyr::ddply(reitmapping,~DIVISION,function(x) head(x,1)) %>% 
   rename(areacell=GRIDCELL,division=DIVISION,subdivision=SUBDIVISION)
-db_drop_table(mar$con,'port2sr')
+dbRemoveTable(mar,'port2sr')
 port2division(0:999) %>% 
   left_join(gridcell.mapping) %>% 
-  copy_to(mar,.,'port2sr')    
+  dbWriteTable(mar,'port2sr',.)    
 
 ## landing pre 1994 from fiskifélagið
 
-db_drop_table(mar$con,'landed_catch_pre94') 
+dbRemoveTable(mar,'landed_catch_pre94') 
 bind_rows(
   list.files('/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = '^[0-9]+',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep='\t')) %>% 
@@ -338,7 +354,7 @@ bind_rows(
   filter(!(ar==1991&is.na(skip))) %>% 
   mutate(veidisvaedi='I') %>% 
   rename(veidarfaeri=vf,skip_nr=skip,magn_oslaegt=magn,fteg=teg) %>% 
-  copy_to(mar,.,'landed_catch_pre94')
+  dbWriteTable(mar,'landed_catch_pre94',.)
 
 
 
@@ -369,7 +385,7 @@ landed_catch <-
   inner_join(tbl(mar,'species_key'),by=c('fteg'='tegund')) %>%
   left_join(tbl(mar,'port2sr'),by='hofn') %>%
   mutate(sampling_type='LND',
-         gear = ifelse(is.na(gear),'LLN',gear)) %>% 
+         gear = nvl(gear,'LLN')) %>% 
   select(weight_total=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
          gear)
 
@@ -391,14 +407,14 @@ foreign_landed_catch <-
   inner_join(tbl(mar,'species_key'),by=c('fteg'='tegund')) %>%
   left_join(tbl(mar,'port2sr'),by='hofn') %>%
   mutate(sampling_type='FLND',
-         gear = ifelse(is.na(gear),'LLN',gear)) %>% 
+         gear = nvl(gear, 'LLN')) %>% 
   select(weight_total=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
          gear)
 
 mfdb_import_survey(mdb,data_source = 'lods.foreign.landings',
                    foreign_landed_catch %>% collect(n=Inf) %>% as.data.frame())
 
-url <- 'http://data.hafro.is/assmt/2016/'
+url <- 'http://data.hafro.is/assmt/2017/'
 
 x1 <- gsub("<([[:alpha:]][[:alnum:]]*)(.[^>]*)>([.^<]*)", "\\3",
            readLines(url))
@@ -486,6 +502,7 @@ mfdb_import_survey(mdb,
                    data_in = landings %>% 
                      select(-r) %>% 
                      mutate(vessel =ifelse(vessel=='-0',NA,vessel)) %>% 
+                     ## this is a hotfix due to importing problem and the landings are ~100 kg from these vessels
                      filter(!(vessel %in% c('1694-0','5000-0','5059-0',
                                             '5688-0','5721-0','8076-0','8091-0','9083-0')),
                             weight_total >0,
