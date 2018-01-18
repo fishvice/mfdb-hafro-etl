@@ -1,17 +1,12 @@
-## devtools::install_github('mareframe/mfdb',ref='5.x')
+## devtools::install_github('mareframe/mfdb',ref='6.x')
 library(mfdb)
-library(tidyverse)
 library(mar)
-library(purrr)
 library(purrrlyr)
-library(tidyr)
-library(stringr)
-library(ROracle)
 library(dbplyr)
 
 
 ## oracle connection 
-mar <- dbConnect(dbDriver('Oracle'))
+mar <- connect_mar()
 
 ## Create connection to MFDB database, as the Icelandic case study
 mdb <- mfdb('Iceland')#,db_params = list(host='hafgeimur.hafro.is'))
@@ -63,19 +58,12 @@ data.frame(tegund =  c(1:11, 19, 21, 22,
   dbWriteTable(mar,'species_key',.,overwrite = TRUE)
 
 ## gear mapping
-ice.gear <-
-  read.table('inst/veidarf.txt',header=TRUE)
-
-mapping <- read.table(header=TRUE,
-                      file='inst/mapping.txt') 
-
-mapping <-
-  mutate(merge(mapping, gear, by.x='gear',
-               by.y = 'id'),
-         gear=NULL,
-         description=NULL)
-names(mapping)[2] <- 'gear'
-mapping$gear <- as.character(mapping$gear)
+mapping <- 
+  read_delim('inst/mapping.txt',delim=' ') %>% 
+  inner_join(gear,by=c('gear'='id')) %>% 
+  select(-c(gear,description,t_group)) %>% 
+  rename(gear = name) %>% 
+  mutate(gear = as.character(gear))
 
 dbWriteTable(conn = mar, 
              value = mapping,
@@ -156,7 +144,7 @@ stations %>%
     rename(name = tow) %>% 
     collect(n=Inf) %>% 
     as.data.frame() %>%
-    mutate(name = ifelse(name == 1e5, '100000',ifelse(name == 4e5,'400000',as.character(name)))) %>% 
+    #mutate(name = ifelse(name == 1e5, '100000',ifelse(name == 4e5,'400000',as.character(name)))) %>% 
     mfdb_import_tow_taxonomy(mdb,.)
   
   ## information on vessels
@@ -217,7 +205,7 @@ ldist <-
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
          kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)),
          age = 0)%>%
-  select(-c(r,tegund,uppruni_lengdir)) %>% 
+  select(-c(r,tegund)) %>% 
   rename(sex=kyn) %>% 
   rename(maturity_stage = kynthroski) %>% 
   rename(length = lengd) %>% 
@@ -268,7 +256,9 @@ mfdb_import_vessel_taxonomy(mdb,
                                               '901-0','9019-0','902-0','904-0','9056-0','9057-0','9058-0','9059-0','9061-0','907-0',
                                               '912-0','914-0','92-0','920-0','922-0','935-0','937-0','939-0','94-0','941-0',
                                               '942-0','949-0','95-0','9501-0','9502-0','9503-0','953-0','958-0','96-0','969-0',
-                                              '97-0','970-0','976-0','98-0','989-0','99-0','9919-0'),
+                                              '97-0','970-0','976-0','98-0','989-0','99-0','9919-0', 
+                                              '1235-0','1287-0','1456-0','301-0','341-0','352-0','373-0','414-0','441-0',
+                                              '447-0','505-0','515-0','529-0','56-0','590-0','623-0','705-0','748-0','805-0','810-0','952-0','983-0'),
                                        length=NA,tonnage=NA,power=NA,full_name = 'Old unknown vessel'))
 
 
@@ -278,7 +268,7 @@ mfdb_import_vessel_taxonomy(mdb,
 
 mfdb_import_survey(mdb,
                    data_source = 'iceland-ldist',
-                   ldist %>% filter(!(tow %in% c(1e5,4e5))) %>% mutate(vessel =ifelse(vessel=='-0',NA,vessel) ))
+                   ldist %>% mutate(vessel =ifelse(vessel=='-0',NA,vessel) ))
 
 
 ## age -- length data
@@ -560,7 +550,7 @@ mfdb_import_survey(mdb,
                    oldLandingsByMonth)
 
 ## statlant data, need to look further into this
-load('~einarhj/r/Pakkar/landr/data/lices.rda')
+load('/net/hafkaldi/export/home/haf/einarhj/r/Pakkar/landr/data/lices.rda')
 tmp <- 
   lices %>%
   filter(as.numeric(sare)==5,tolower(div)=='a',
