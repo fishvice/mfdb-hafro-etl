@@ -350,14 +350,14 @@ bind_rows(
 
 ## catches 
 landings_map <- 
-  mar:::lods_oslaegt(mar) %>%
+  lods_oslaegt(mar) %>%
   left_join(tbl_mar(mar,'kvoti.skipasaga'), by='skip_nr') %>% 
   filter(l_dags < ur_gildi, l_dags > i_gildi) %>% 
   select(skip_nr,saga_nr,komunr,hofn) %>% 
   distinct()
 
 landed_catch <- 
-  mar:::lods_oslaegt(mar) %>%   
+  lods_oslaegt(mar) %>%   
   left_join(landings_map) %>% 
   filter(ar > 1993) %>% 
   select(veidarfaeri, skip_nr, fteg,
@@ -382,7 +382,7 @@ landed_catch <-
 
 
 foreign_landed_catch <- 
-  mar:::lods_oslaegt(mar) %>%   
+  lods_oslaegt(mar) %>%   
   left_join(landings_map) %>% 
   filter(ar > 2013) %>% 
   select(veidarfaeri, skip_nr, fteg,
