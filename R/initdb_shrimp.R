@@ -20,7 +20,7 @@ mar <- dbConnect(dbDriver('Oracle'))
 mdb <- mfdb('Iceland')#, destroy_schema = TRUE)#,db_params = list(host='hafgeimur.hafro.is'))
 #after destroying the schema, the mfdb package needs to be reloaded 
 
-source("shrimp_support_tables.R")
+source("R/shrimp_support_tables.R")
 
 
 #DOUBLE CHECK WITH INGA THAT EXTRA ISAFJORDURDJUP TOWS STILL INCLUDED -
@@ -275,7 +275,7 @@ mfdb_import_vessel_taxonomy(mdb,data.frame(name='-0',length=NA,tonnage=NA,power=
 dbRemoveTable(mar,'ldist')
 lesa_lengdir(mar) %>% 
   inner_join(tbl(mar,'species_key')) %>%  #as.tibble() %>% View()
-  skala_med_toldum2() %>% glimpse
+  skala_med_toldum2() %>% 
   rename(tow=synis_id) %>% 
   compute(name='ldist',temporary=FALSE)
   
