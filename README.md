@@ -4,9 +4,10 @@ ETL scripts for the MFRI MFDB implementation. The scripts on these pages assume 
 ## Installation instructions
 The respective R package sites have detailed installation instructions and examples. However as the `mfdb` package requires access to a postgres database and there are some MFRI specific (or mainly centos) steps needed in the installation for postgres the following steps should be sufficient to install postgres on MFRI machines:
 ```
-$ sudo yum install postgresql-server postgresql-contrib
+$ sudo yum install postgresql-server postgresql-contrib postgresql-devel
 $ sudo postgresql-setup initdb
 $ sudo systemctl enable postgresql
+$ sudo systemctl start postgresql
 ```
  and the follow the instructions on github.com/mareframe/mfdb, specifically:
 ```
