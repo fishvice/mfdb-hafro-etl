@@ -118,12 +118,12 @@ stations <-
   select(synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
          gear,sampling_type,depth=dypi_kastad,vessel,reitur,smareitur) %>% 
   ## this part will be fixed in the db soon
-  mutate(lat=nvl(geoconvert1(lat),0),
-         lon=nvl(geoconvert1(lon),0)) %>% 
-  mutate(areacell=10*reitur+nvl(smareitur,1),
+#  mutate(lat=nvl(geoconvert1(lat),0),
+#         lon=nvl(geoconvert1(lon),0)) %>% 
+  mutate(areacell=10*reitur+nvl(smareitur,1)) %>% 
          ## this bit should also be fixed soon
-         lon1 = nvl(geoconvert1(lon1),lon),
-         lat1 = nvl(geoconvert1(lat1),lat)) %>% 
+#         lon1 = nvl(geoconvert1(lon1),lon),
+#         lat1 = nvl(geoconvert1(lat1),lat)) %>% 
   mutate(length = arcdist(lat,lon,lat1,lon1)) %>%
   select(-c(lat1,lon1,reitur,smareitur)) %>% 
   inner_join(tbl(mar,'reitmapping') %>% 
@@ -140,53 +140,53 @@ stations %>%
   compute(name='stations',temporary=FALSE,indexes = list('tow'))
 
 ## information on tows
-  tbl(mar,'stations') %>% 
-    rename(name = tow) %>% 
-    collect(n=Inf) %>% 
-    as.data.frame() %>%
-    #mutate(name = ifelse(name == 1e5, '100000',ifelse(name == 4e5,'400000',as.character(name)))) %>% 
-    mfdb_import_tow_taxonomy(mdb,.)
-  
-  ## information on vessels
-  
+tbl(mar,'stations') %>% 
+  rename(name = tow) %>% 
+  collect(n=Inf) %>% 
+  as.data.frame() %>%
+  #mutate(name = ifelse(name == 1e5, '100000',ifelse(name == 4e5,'400000',as.character(name)))) %>% 
+  mfdb_import_tow_taxonomy(mdb,.)
+
+## information on vessels
+
 vessel_type_new <- 
   read_csv('inst/vessel_type.csv') %>% 
   rename(name=vessel_type) %>% 
   mutate(id=1:n())
-  
+
 mfdb:::mfdb_import_taxonomy(mdb,'vessel_type',vessel_type_new)  
 
-  tmp <- 
-    tbl_mar(mar,'kvoti.skipasaga') %>% 
-    left_join(tbl_mar(mar,'kvoti.skip_extra') %>% 
-                select(skip_nr, power=orka_velar_1)) %>% 
-    left_join(tbl_mar(mar,'kvoti.utg_fl') %>% 
-                mutate(vessel_type = decode(flokkur,-6,'GOV',-4,'FGN',
-                                            -3,'NON',
-                                            0,'NON',
-                                            1,'NON',
-                                            3,'RSH',
-                                            11,'FRZ',
-                                            99,'JIG',
-                                            98,'JIG',
-                                            -8,'DIV',
-                                            100,'JIG',
-                                            101,'JIG',
-                                            6,'JIG',
-                                            'COM')) %>% 
-                select(flokkur,vessel_type)) %>% 
-    mutate(name = concat(concat(skip_nr,'-'),saga_nr)) %>% 
-    select(name,vessel_type,tonnage = brl,power,
-           full_name = heiti,length=lengd) %>% 
-    collect(n=Inf) %>% 
-    as.data.frame() %>% 
-    mfdb_import_vessel_taxonomy(mdb,.)
-  
-  
-  
+tmp <- 
+  tbl_mar(mar,'kvoti.skipasaga') %>% 
+  left_join(tbl_mar(mar,'kvoti.skip_extra') %>% 
+              select(skip_nr, power=orka_velar_1)) %>% 
+  left_join(tbl_mar(mar,'kvoti.utg_fl') %>% 
+              mutate(vessel_type = decode(flokkur,-6,'GOV',-4,'FGN',
+                                          -3,'NON',
+                                          0,'NON',
+                                          1,'NON',
+                                          3,'RSH',
+                                          11,'FRZ',
+                                          99,'JIG',
+                                          98,'JIG',
+                                          -8,'DIV',
+                                          100,'JIG',
+                                          101,'JIG',
+                                          6,'JIG',
+                                          'COM')) %>% 
+              select(flokkur,vessel_type)) %>% 
+  mutate(name = concat(concat(skip_nr,'-'),saga_nr)) %>% 
+  select(name,vessel_type,tonnage = brl,power,
+         full_name = heiti,length=lengd) %>% 
+  collect(n=Inf) %>% 
+  as.data.frame() %>% 
+  mfdb_import_vessel_taxonomy(mdb,.)
+
+
+
 mfdb_import_vessel_taxonomy(mdb,data.frame(name='-0',length=NA,tonnage=NA,power=NA,full_name = 'Unknown vessel'))
-  
-  
+
+
 ## length distributions
 dbRemoveTable(mar,'ldist')
 lesa_lengdir(mar) %>%
@@ -530,7 +530,7 @@ mfdb_import_survey(mdb,
 oldLandingsByMonth <-
   landingsByYear %>%
   left_join(spitToDST2) %>%
-#  inner_join(tbl(mar,'species_key') %>% collect(), by = c('shortname'='species')) %>%
+  #  inner_join(tbl(mar,'species_key') %>% collect(), by = c('shortname'='species')) %>%
   filter(!is.na(shortname) & !is.na(Year) &  Year < 1982) %>%
   select(shortname,Year,Others,Total) %>%
   left_join(expand.grid(Year=1905:1981,month=1:12)) %>%
