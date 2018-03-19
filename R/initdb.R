@@ -328,16 +328,16 @@ port2division(0:999) %>%
 
 dbRemoveTable(mar,'landed_catch_pre94') 
 bind_rows(
-  list.files('/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = '^[0-9]+',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = '^[0-9]+',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep='\t')) %>% 
     bind_rows() %>% 
     rename_(.dots=stats::setNames(colnames(.),c('vf',	'skip',	'teg',	'ar',	'man',	'hofn',	'magn'))) %>% 
     mutate(magn=as.numeric(magn)),
-  list.files('/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'ready',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'ready',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep='\t')) %>% 
     bind_rows() %>% 
     rename_(.dots=stats::setNames(colnames(.),c(	'ar','hofn',	'man',	'vf',	'teg', 'magn'))),
-  list.files('/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'afli.[0-9]+$',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'afli.[0-9]+$',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep=';')) %>% 
     bind_rows()%>% 
     rename_(.dots=stats::setNames(colnames(.),c(	'ar','hofn',	'man',	'vf',	'teg', 'magn')))) %>%
