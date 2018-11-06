@@ -17,8 +17,11 @@ library(dbplyr)
 mar <- dbConnect(dbDriver('Oracle'))
 
 ## Create connection to MFDB database, as the Icelandic case study
-mdb <- mfdb('Iceland')#, destroy_schema = TRUE)#,db_params = list(host='hafgeimur.hafro.is'))
+#mdb <- mfdb('Iceland', destroy_schema = TRUE);  library(mfdb)
+mdb <- mfdb('Iceland')
+#,db_params = list(host='hafgeimur.hafro.is'))
 #after destroying the schema, the mfdb package needs to be reloaded 
+
 
 source("R/shrimp_support_tables.R")
 
@@ -170,8 +173,48 @@ vessel_map <-
   select(synis_id,skip,saga_nr) %>% 
   compute(name='vessel_map',temporary=FALSE)
 
+#labels observer (1/2/8) synis_id that both contain shrimp and have a skiki
+#removed the requirement to have shrimp
+dbRemoveTable(mar, 'SEA_fjords')
+SEA_fjords <-
+  # lesa_lengdir(mar) %>% 
+  # inner_join(tbl(mar,'species_key')) %>% 
+  # filter(tegund==41) %>% 
+  # inner_join(lesa_stodvar(mar) %>% 
+  #              filter(synaflokkur %in% c(1,2,8))) %>% 
+  lesa_stodvar(mar) %>% 
+  filter(synaflokkur %in% c(1,2,8)) %>% 
+  #  filter(ar>1988) %>% 
+  filter(skiki %in% c(31,32,34,52,53,55,56,59,62,63)) %>% 
+  filter(leidangur!='VER-91') %>% #this one inluded in indices
+  select(synis_id) %>% 
+  mutate(inSEA_fjords=1) %>% 
+  distinct %>% 
+  compute(name='SEA_fjords',temporary=FALSE)
+
+
+x<-data_frame(lat=c(65.56477,65.74116,65.90471,65.81138,65.56477), 
+              lon=c(-23.47156,-22.98665,-23.92795,-24.21319,-23.47156)) 
+x.isa<-data_frame(lat=c(65.96477,66.24116,66.50471,66.451138,65.96477)-0.25, 
+                  lon=c(-22.67156,-21.98665,-22.92795,-23.51319,-22.67156)) 
+skiki_areas<-
+  lesa_stodvar(mar) %>%
+  filter(synaflokkur %in% c(1,2,8,14,20,31,37)) %>% 
+  select(synis_id, lat=kastad_n_breidd,lon=kastad_v_lengd) %>% 
+  collect(n=Inf) %>% 
+  mutate(inFjord1 = geo::geoinside(., x, option=3) | geo::geoinside(., x.isa, option=3),
+         inFjord = ifelse(inFjord1, 1, 0)) %>% 
+  select(-inFjord1)
+#TO BE COMPLETE, THIS LIST SHOULD BE UPDATED WITH OTHER FJORDS, POSSIBLY ALL FJORDS
+dbWriteTable(conn = mar, 
+             value = skiki_areas,
+             name = 'skiki_areas',
+             overwrite = TRUE)
+
+
 stations <-
   lesa_stodvar(mar) %>% 
+  left_join(tbl(mar,'skiki_areas') %>% select(synis_id, inFjord)) %>%
   left_join(tbl(mar,'vessel_map')) %>% 
   #left_join(tbl(mar,'catch_map')) %>% 
   mutate(saga_nr = nvl(saga_nr,0),
@@ -198,18 +241,26 @@ stations <-
          institute = 'MRI',
          vessel = concat(concat(skip,'-'),saga_nr)) %>% 
   left_join(tbl(mar,'gear_mapping'),by='veidarfaeri') %>% 
-  select(synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
+  select(inFjord,synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
          gear,sampling_type,depth=dypi_kastad,vessel,reitur,smareitur,skiki,fjardarreitur,
          leidangur,toglengd,tognumer) %>% 
-  mutate(areacell=ifelse(sampling_type %in% c('INS', 'XINS', 'XS'), concat(concat(skiki,'_'),fjardarreitur), as.character(10*reitur+nvl(smareitur,1)))
-         ) %>%  #not sure that XS sampling type should use fjardarreitur for area size definition
-  mutate(towlength = arcdist(lat,lon,lat1,lon1), season = ifelse(man %in% 1:2,1,ifelse(man %in% 3:5, 2, ifelse(man %in% 9:10, 3, 4)))) %>%
+  #below converts areacell to skiki format when:
+  #   - lat and lon show it to be within skikis 52 or 53, OR
+  #   - skiki not registered as 52 or 53, but sampling types are INS/XINS/XS or synis_id are SEA_fjords.
+  #   - likely this means there are offshore samples in INS/XINS/XS that are labelled incorrectly with skiki based areacell
+  #   - also possibly there are samples labelled as 52,53 with locations outside these fjords that have reitur based areacell
+  left_join(SEA_fjords) %>% 
+  mutate(areacell=ifelse(!(skiki %in% c(52,53)) & (sampling_type %in% c('INS', 'XINS', 'XS') | inSEA_fjords==1), concat(concat(skiki,'_'),fjardarreitur), as.character(10*reitur+nvl(smareitur,1))),
+         areacell=ifelse(inFjord==1, concat(concat(skiki,'_'),fjardarreitur), areacell)) %>% 
+  mutate(towlength = arcdist(lat,lon,lat1,lon1), 
+         #SHRIMP specific
+         season = ifelse(man %in% 1:2,1,ifelse(man %in% 3:5, 2, ifelse(man %in% 9:10, 3, 4)))) %>%
   ##why is length taken from lat / long rather than toglengd? Former method causes 26 rows of INS data to have length = 0
   distinct() %>% 
   group_by(ar, fjardarreitur, skiki, season) %>%
-  mutate(towcount = ifelse(sampling_type=='INS' & is.na(fjardarreitur)==0 & is.na(tognumer)==0, n(), NA)) %>% 
+  mutate(towcount = ifelse(sampling_type=='INS' & !is.na(fjardarreitur) & !is.na(tognumer), n(), NA)) %>% 
   ungroup() %>% 
-  select(-c(lat1,lon1,reitur,smareitur,fjardarreitur,skiki,leidangur, season)) %>% 
+  select(-c(inFjord,inSEA_fjords,lat1,lon1,reitur,smareitur,fjardarreitur,skiki,leidangur, season)) %>% 
   inner_join(tbl(mar,'reitmapping') %>% 
                select(areacell=GRIDCELL, size),
              by='areacell') %>% 
@@ -274,11 +325,12 @@ mfdb_import_vessel_taxonomy(mdb,data.frame(name='-0',length=NA,tonnage=NA,power=
 ## length distributions
 dbRemoveTable(mar,'ldist')
 lesa_lengdir(mar) %>% 
-  inner_join(tbl(mar,'species_key')) %>%  #as.tibble() %>% View()
+  inner_join(tbl(mar,'species_key')) %>%  
   skala_med_toldum2() %>% 
   rename(tow=synis_id) %>% 
   compute(name='ldist',temporary=FALSE)
-  
+
+
 #could be that SEA samples have weight not correct here
 ldist <- 
   tbl(mar,'ldist') %>% 
@@ -291,7 +343,7 @@ ldist <-
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
          kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)),
          age = 0,
-         weight = ifelse(is.na(mean_wt)==1 | is.na(towlength_original)==1 | is.na(towcount)==1 | is.na(size)==1, 
+         weight = ifelse(is.na(mean_wt) | is.na(towlength_original) | is.na(towcount) | is.na(size), 
                            NA, (mean_wt/towlength_original)/towcount*size)) %>% 
   select(-c(r,biom.r,tegund, mean_wt, towcount, size, towlength, towlength_original)) %>% 
   rename(sex=kyn) %>% 
@@ -349,7 +401,7 @@ mfdb_import_vessel_taxonomy(mdb,
                                               '208-0','230-0','341-0','377-0','385-0','414-0','420-0','476-0','48-0','505-0','510-0',
                                               '515-0','517-0','56-0','575-0','588-0','606-0','623-0','645-0','834-0','844-0','851-0',
                                               '855-0','883-0','921-0','938-0','1235-0','1287-0','1456-0','301-0','352-0','373-0',
-                                              '441-0','447-0','529-0','590-0','705-0','748-0','805-0','810-0','952-0','983-0'),
+                                              '441-0','447-0','529-0','590-0','705-0','748-0','805-0','810-0','952-0','983-0','6121-10'),
                                        length=NA,tonnage=NA,power=NA,full_name = 'Old unknown vessel'))
 
 
@@ -427,10 +479,12 @@ gridcell.mapping <-
   plyr::ddply(reitmapping %>% filter(!grepl('_0', GRIDCELL)) 
               ,~DIVISION,function(x) head(x,1)) %>% 
   rename(areacell=GRIDCELL,division=DIVISION,subdivision=SUBDIVISION)
+
 dbRemoveTable(mar,'port2sr')
 port2division(0:999) %>% 
   left_join(gridcell.mapping) %>% 
   dbWriteTable(mar,'port2sr',.)
+
 dbRemoveTable(mar,'port2sk')
 port2division(0:999, skiki = TRUE) %>% 
   left_join(gridcell.mapping) %>% 
@@ -496,7 +550,7 @@ landed_catch <-
   left_join(tbl(mar,'port2sr'),by='hofn') %>% 
   #left_join(tbl(mar,'port2sk'),by='hofn') %>% 
   left_join(tbl(mar,'kfteg2sk'),by='kfteg') %>% 
-  mutate(areacell = ifelse(species=='SHR', areacell.y, areacell.x),
+  mutate(areacell = ifelse(kfteg %in% c(58, 51, 53, 52, 55, 72, 54, 56), areacell.y, areacell.x),
          sampling_type='LND',
          gear = nvl(gear,'LLN')) %>% 
   select(weight_total=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,

@@ -1,9 +1,15 @@
 ## devtools::install_github('mareframe/mfdb',ref='6.x')
+library(tidyverse)
+library(tidyr)
 library(mfdb)
 library(mar)
+library(purrr)
 library(purrrlyr)
+library(stringr)
+library(ROracle)
 library(dbplyr)
 
+add_shrimp <- TRUE
 
 ## oracle connection 
 mar <- connect_mar()
@@ -22,7 +28,8 @@ reitmapping <- read.table(
          lon = geo::sr2d(GRIDCELL)$lon) %>% 
   by_row(safely(function(x) geo::srA(x$GRIDCELL),otherwise=NA)) %>% 
   unnest(size=.out %>% map('result')) %>% 
-  select(-.out) %>% 
+  select(-.out) %>%
+  transmute(GRIDCELL = as.character(GRIDCELL), DIVISION, SUBDIVISION = as.character(SUBDIVISION), id, lat, lon, size) %>% 
   na.omit()
 
 dbWriteTable(mar,'reitmapping',as.data.frame(reitmapping),overwrite=TRUE)
@@ -120,11 +127,11 @@ stations <-
   ## this part will be fixed in the db soon
 #  mutate(lat=nvl(geoconvert1(lat),0),
 #         lon=nvl(geoconvert1(lon),0)) %>% 
-  mutate(areacell=10*reitur+nvl(smareitur,1)) %>% 
+  mutate(areacell=as.character(10*reitur+nvl(smareitur,1))) %>% 
          ## this bit should also be fixed soon
 #         lon1 = nvl(geoconvert1(lon1),lon),
 #         lat1 = nvl(geoconvert1(lat1),lat)) %>% 
-  mutate(length = arcdist(lat,lon,lat1,lon1)) %>%
+  mutate(towlength = arcdist(lat,lon,lat1,lon1)) %>%
   select(-c(lat1,lon1,reitur,smareitur)) %>% 
   inner_join(tbl(mar,'reitmapping') %>% 
                select(areacell=GRIDCELL),
@@ -198,7 +205,7 @@ lesa_lengdir(mar) %>%
 ldist <- 
   tbl(mar,'ldist') %>% 
   right_join(tbl(mar,'stations') %>% 
-               select(-length),
+               select(-towlength),
              by = 'tow') %>% 
   mutate(lengd = nvl(lengd,0), #ifelse(is.na(lengd), 0, lengd),
          fjoldi = nvl(fjoldi,0), #ifelse(is.na(fjoldi), 0, fjoldi),
@@ -273,14 +280,12 @@ mfdb_import_survey(mdb,
 
 ## age -- length data
 
-
-
 aldist <-
   lesa_kvarnir(mar) %>% 
   rename(tow=synis_id) %>% 
   inner_join(tbl(mar,'species_key')) %>%
   right_join(tbl(mar,'stations') %>% 
-               select(-length)) %>%
+               select(-towlength)) %>%
   mutate(lengd = nvl(lengd,0),
          count = 1,
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M',NA)),
@@ -574,3 +579,4 @@ tmp <-
                      data_source = 'statlant.foreign.landings',
                      .)
 
+if(add_shrimp){source('R/initdb_add_shrimp.R')}
