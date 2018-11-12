@@ -14,7 +14,10 @@ names(flat1) <- replace(names(flat1), names(flat1) == "flat1", "flat") #arnarfj?
 flat2 <- c(38.29,20.08,94.95,85.47,18.03,5.67,30.37,3.09)
 flat2 <- as.data.frame(cbind(fjardarreitur=1:8, skiki=55, flat2)) 
 names(flat2) <- replace(names(flat2), names(flat2) == "flat2", "flat") # h?nafl 1:8
-flat3 <- c(81.8, 85.6,81.7,21,53.7,22.2); flat3 <- as.data.frame(cbind(fjardarreitur=c(1,2,3,4,6,8), skiki=53, flat3))  # fjardarreitir: 1,2,3,4,6,8 ?safj
+#changed to divide fjardareitur 1 into 4 components, following what Inga does
+# flat3 <- c(81.8, 85.6,81.7,21,53.7,22.2); flat3 <- as.data.frame(cbind(fjardarreitur=c(1,2,3,4,6,8), skiki=53, flat3))  # fjardarreitir: 1,2,3,4,6,8 ?safj
+# names(flat3) <- replace(names(flat3), names(flat3) == "flat3", "flat") 
+flat3 <- c(4.09, 5.64, 22.73, 81.8 - 4.09 - 5.64 - 22.73, 81.8, 85.6,81.7,21,53.7,22.2); flat3 <- as.data.frame(cbind(fjardarreitur=c(1.1,1.2,1.3,1.4,1,2,3,4,6,8), skiki=53, flat3))  # fjardarreitir: 1,2,3,4,6,8 ?safj
 names(flat3) <- replace(names(flat3), names(flat3) == "flat3", "flat") 
 flat4 <- c(92.62,70.69, 9.95, 20.78); flat4 <- as.data.frame(cbind(fjardarreitur=1:4, skiki=62, flat4)) # skagafj 1:4
 names(flat4) <- replace(names(flat4), names(flat4) == "flat4", "flat") 
@@ -79,7 +82,7 @@ dbWriteTable(mar, 'corrected_skiki', corrected_skiki)
 
 #####----REASSIGN SYNAFLOKKUR TO SUPPORT DATA SUBSETTING (with model definition)----#####
 
-print("Warning! Vector leidangur_full needs to be updated every year to include most recent survey name.")
+print("Warning! Vector of leidangur in isa.h needs to be updated every year to include most recent survey name.")
 
 #Define support tables
 ######### Eldey ##########
@@ -113,7 +116,7 @@ arnar.h <- c('D11-88' ,  'D11-89' ,  'D8-90' ,
              'D7-2006' ,  'D7-2007' ,  'D12-2008' ,
              'D13-2009' ,  'D12-2010' ,  'D8-2011' ,
              'D9-2012' ,  'D7-2013' ,  'D7-2014' ,
-             'D4-2015' ,  'B15-2016' , 'GU1-2017')
+             'D4-2015' ,  'B15-2016' , 'GU1-2017', 'B13-2018')
 arnar.v <- c('L4-88' , 'L3-89' , 'L7-90' ,
              'VER-91' , 'LISU1-92' , 'D1-93' ,
              'D2-94' , 'D1-95' , 'D1-96' ,
@@ -1926,6 +1929,7 @@ dbWriteTable(mar, 'corrected_toglengd', corrected_toglengd)
 
 
 ##########fjardarreitir#####################
+# also correcting here based on subdivision of fjardarreiture 1 in ísafjörðurdjúp as done by inga
 # arnarfjordur:
 sk52 <-data.frame(skiki = 52, tognumer = 1:54, fjardarreitur = rep(NA, 54))
 sk52$fjardarreitur[sk52$tognumer < 3 | sk52$tognumer > 20] <- 1
@@ -1935,7 +1939,11 @@ sk52$fjardarreitur[sk52$tognumer > 10 & sk52$tognumer < 16] <- 4
 sk52$fjardarreitur[sk52$tognumer > 5 & sk52$tognumer < 11] <- 5
 # Isafjordur
 sk53 <-data.frame(skiki = 53, tognumer = 1:54, fjardarreitur = rep(NA, 54))
-sk53$fjardarreitur[sk53$tognumer < 23 ] <- 1
+#sk53$fjardarreitur[sk53$tognumer < 23 ] <- 1
+sk53$fjardarreitur[sk53$tognumer %in% c(1:4,15:22) ] <- 1.1
+sk53$fjardarreitur[sk53$tognumer %in% c(5) ] <- 1.2
+sk53$fjardarreitur[sk53$tognumer %in% c(6:7) ] <- 1.3
+sk53$fjardarreitur[sk53$tognumer %in% c(8:14) ] <- 1.4
 sk53$fjardarreitur[(sk53$tognumer > 22 & sk53$tognumer < 33 | sk53$tognumer == 37)] <- 2
 sk53$fjardarreitur[(sk53$tognumer > 32 & sk53$tognumer < 37)] <- 3
 sk53$fjardarreitur[(sk53$tognumer == 38 | sk53$tognumer == 39)] <- 4
@@ -2017,6 +2025,7 @@ names(corrected_fjardarreitur)[3] <- 'fjardarreitur.fx'
 dbRemoveTable(mar,'corrected_fjardarreitur')
 
 dbWriteTable(mar, 'corrected_fjardarreitur', corrected_fjardarreitur)
+
 
 #from fiskar.numer, used in skala_med_toldum2
 #
@@ -2122,7 +2131,7 @@ shrimp_station_fixes <- function(stodvar){
 
 
 
-skala_med_toldum2<-function (lengdir,biom.teg=list("41" = c(0.000628641104521994, 2.84713109335131,0.1)))
+skala_med_toldum2<-function (lengdir, biom.teg=list("41" = c(0.000628641104521994, 2.84713109335131,0.1)))
 {
   #The end result of this function is 1) counts by length group scaled up to the whole catch size either by numbers in the catch
   #or biomass in the catch, and 2) a mean size-adjusted mean weight that can be summed to form indices 
@@ -2158,27 +2167,39 @@ skala_med_toldum2<-function (lengdir,biom.teg=list("41" = c(0.000628641104521994
     dplyr::left_join(tbl(mar,'biom.mat'), by = c('tegund' = 'key')) %>% 
     dplyr::mutate(lengd_scaler = ifelse(s==0 | is.na(s), 1, 1/s),
                   lengd_interval = round(lengd_scaler*lengd)/lengd_scaler) %>% 
-    dplyr::left_join(ratio) 
+    dplyr::left_join(ratio)
   
+  #sum by length intervals (larger than small bins) to apply an interval-dependent weight
   lengdir.tmp2 <-
     lengdir.tmp %>% 
-    dplyr::group_by(synis_id, tegund, lengd_interval) %>%
-    dplyr::summarise(fjoldi_by_int = sum(fjoldi)) %>%
-    dplyr::right_join(lengdir.tmp)
-  
+    dplyr::group_by(synis_id, tegund, lengd_interval, a, b) %>%
+    dplyr::summarise(fjoldi_by_int = sum(fjoldi))
+
+  # sums by number are formed
+  # also the proportion an interval contributes to the total weight sum
   lengdir.tmp3<- 
     lengdir.tmp2 %>% 
     dplyr::group_by(synis_id, tegund) %>% 
-    dplyr::summarise(fjoldi_sum = sum(fjoldi)) %>% 
+    dplyr::summarise(fjoldi_sum = sum(fjoldi_by_int)) %>% 
     dplyr::right_join(lengdir.tmp2) %>% 
     dplyr::mutate(fjoldi_prop_weighted = ifelse(fjoldi_sum*a*lengd_interval^b==0, NA,fjoldi_by_int/fjoldi_sum*a*lengd_interval^b))
   
+  #creates mean_wt from interval-specific biomass proportions - takes vigt_synis, 
+  #splits it among proportions of biomass expected given the total length distribution
+  #and expected weight per length interval, then divides each interval-specific split
+  #by the number found within that interval.
+  #mean_wt is the expected weight per individual within a certain interval
+  #it is used to create weight in the next step of the intdb_add_shrimp step 
+  #for use as a biomass index
+  #mean_wt may be NA when either fjoldi_by_int is 0, or vigt_synis is 0, or 
+  #fjoldi_prop_weighted_sum is 0, or fjoldi_sum is 0, fjoldi_by_int is NA
   lengdir.tmp4<-
     lengdir.tmp3 %>% 
     dplyr::group_by(synis_id,tegund) %>% 
     dplyr::summarise(fjoldi_prop_weighted_sum = sum(fjoldi_prop_weighted)) %>% 
     dplyr::right_join(lengdir.tmp3) %>% 
     dplyr::mutate(biom_prop = ifelse(fjoldi_prop_weighted_sum==0, NA, fjoldi_prop_weighted/fjoldi_prop_weighted_sum)) %>% 
+    dplyr::right_join(lengdir.tmp) %>% 
     dplyr::mutate(mean_wt = biom_prop*ifelse(fjoldi_by_int==0, NA, ifelse(vigt_synis == 0, NA, vigt_synis)/fjoldi_by_int)) %>% 
     dplyr::mutate(fjoldi = fjoldi*ifelse(tegund %in% biom_spp, biom.r, r)) %>% 
     dplyr::select(-c(vigt_synis, fj_maelt, simplemean_wt, lengd_interval, lengd_scaler, a, b, s,
@@ -2195,4 +2216,98 @@ skala_med_toldum2<-function (lengdir,biom.teg=list("41" = c(0.000628641104521994
 #grunnsl$kg_sjm <- ifelse(is.na(grunnsl$kg_sjm), 0, grunnsl$kg_sjm)
 
 
+#labels observer (1/2/8) synis_id that both contain shrimp and have a skiki
+#removed the requirement to have shrimp
+dbRemoveTable(mar, 'SEA_fjords')
+SEA_fjords <-
+  # lesa_lengdir(mar) %>% 
+  # inner_join(tbl(mar,'species_key')) %>% 
+  # filter(tegund==41) %>% 
+  # inner_join(lesa_stodvar(mar) %>% 
+  #              filter(synaflokkur %in% c(1,2,8))) %>% 
+  lesa_stodvar(mar) %>% 
+  filter(synaflokkur %in% c(1,2,8)) %>% 
+  #  filter(ar>1988) %>% 
+  filter(skiki %in% c(31,32,34,52,53,55,56,59,62,63)) %>% 
+  filter(leidangur!='VER-91') %>% #this one inluded in indices
+  select(synis_id) %>% 
+  mutate(inSEA_fjords=1) %>% 
+  distinct %>% 
+  compute(name='SEA_fjords',temporary=FALSE)
+
+
+x.arn<-data_frame(lat=c(65.56477,65.74116,65.90471,65.81138,65.56477), 
+                  lon=c(-23.47156,-22.98665,-23.92795,-24.21319,-23.47156)) 
+x.isa<-data_frame(lat=c(65.96477,66.24116,66.50471,66.451138,65.96477)-0.25, 
+                  lon=c(-22.67156,-21.98665,-22.92795,-23.51319,-22.67156)) 
+x.1.1<-data_frame(lat=c(66.00 , 66.00, 65.924, 65.924, 66.00), 
+                  lon=c(-22.565,-22.529,-22.541,-22.617,-22.565)) 
+x.1.2<-data_frame(lat=c(65.989 , 65.989, 65.934, 65.934, 65.989), 
+                  lon=c(-22.529,-22.461,-22.415,-22.449,-22.529)) 
+x.1.3<-data_frame(lat=c(65.989 , 65.934, 65.880, 65.787, 65.777, 65.838, 65.910, 65.997, 65.989), 
+                  lon=c(-22.461,-22.415,-22.432,-22.595,-22.551,-22.429,-22.340,-22.401,-22.461)) 
+x.1.4<-data_frame(lat=c(66.00 , 66.00, 65.989, 65.989, 65.989, 65.997, 66.071, 66.125, 66.015, 66.00), 
+                  lon=c(-22.565,-22.529,-22.529,-22.461,-22.461,-22.401,-22.454,-22.658,-22.695,-22.565)) 
+x.3<-data_frame(lat=c(66.067 , 66.191, 66.269, 66.192, 66.067), 
+                lon=c(-23.113,-22.947,-23.160,-23.482,-23.113)) 
+x.5<-data_frame(lat=c( 66.192, 66.269, 66.294, 66.359, 66.193), 
+                lon=c(-23.482,-23.160,-22.970,-23.198,-23.480)) 
+
+
+#SEE CODE AT END FOR FIGURES
+
+skiki_areas<-
+  lesa_stodvar(mar) %>%
+  filter(synaflokkur %in% c(1,2,8,14,20,31,37)) %>% 
+  select(synis_id, lat=kastad_n_breidd,lon=kastad_v_lengd) %>% 
+  collect(n=Inf) %>% 
+  mutate(in.arn = ifelse(geo::geoinside(., x.arn, option=3), 1, 0),
+         in.isa = ifelse(geo::geoinside(., x.isa, option=3), 1, 0),
+         corrected_areacell = 
+           ifelse(geo::geoinside(., x.1.1, option=3), '53_1.1', 
+                  ifelse(geo::geoinside(., x.1.2, option=3), '53_1.2',
+                         ifelse(geo::geoinside(., x.1.3, option=3), '53_1.3', 
+                                ifelse(geo::geoinside(., x.1.4, option=3), '53_1.4', 
+                                       ifelse(geo::geoinside(., x.3, option=3), '53_3',
+                                              ifelse(geo::geoinside(., x.5, option=3), '53_5', NA)))))))
+
+#TO BE COMPLETE, THIS LIST SHOULD BE UPDATED WITH OTHER FJORDS, POSSIBLY ALL FJORDS
+dbWriteTable(conn = mar, 
+             value = skiki_areas,
+             name = 'skiki_areas',
+             overwrite = TRUE)
+
+
+
+
+# afli_stofn(mar) %>% 
+#   filter(lhofn==61) %>% 
+#   inner_join(afli_afli(mar)) %>% 
+#   inner_join(afli_toga(mar)) %>% 
+#   filter(tegund == 41,
+#          veidarf %in% c(30,14),
+#          skiki == 52) %>% 
+#   mutate(ar = to_number(to_char(vedags,'yyyy')),
+#          man = to_number(to_char(vedags,'mm'))) %>% 
+#   mutate(timabil = ifelse(man > 8,concat(ar,ar+1),concat(ar-1,ar))) %>% 
+#   group_by(timabil) %>% 
+#   summarise(c=sum(afli)) %>% collect(n=Inf) %>% View()
+
+# x.arn %>% 
+#   ggplot(aes(lon,lat))+ 
+#   geom_polygon(data=gisland::biceland,aes(long,lat,group=group)) +
+#   geom_path(col = 'green') + 
+#   coord_quickmap(xlim = c(-22,-25),ylim=c(65.5,66))
+
+# x.5%>%
+#   ggplot(aes(lon,lat))+
+#   geom_polygon(data=gisland::biceland,aes(long,lat,group=group)) +
+#   geom_path(col = 'green') +
+#   geom_path(data = x.3,col = 'blue') +
+#   geom_path(data = x.1.1,col = 'green') +
+#   geom_path(data = x.1.2,col = 'yellow') +
+#   geom_path(data = x.1.3,col = 'red') +
+#   geom_path(data = x.1.4,col = 'orange') +
+#   #  coord_quickmap(xlim = c(-22,-24),ylim=c(65.6,66.25))
+#   coord_quickmap(xlim = c(-22.3,-23.5),ylim=c(65.8,66.4))
 

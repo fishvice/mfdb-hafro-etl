@@ -3,13 +3,14 @@
 #devtools::install_github('Hafro/rgadget')
 #install.packages("tidyverse")
 library(mfdb)
+library(broom)
 library(tidyverse)
 library(mar)
-library(purrr)
+#library(purrr)
 library(purrrlyr)
-library(tidyr)
-library(stringr)
-library(ROracle)
+#library(tidyr)
+#library(stringr)
+#library(ROracle)
 library(dbplyr)
 
 
@@ -17,7 +18,7 @@ library(dbplyr)
 mar <- dbConnect(dbDriver('Oracle'))
 
 ## Create connection to MFDB database, as the Icelandic case study
-#mdb <- mfdb('Iceland', destroy_schema = TRUE);  library(mfdb)
+mdb <- mfdb('Iceland', destroy_schema = TRUE);  library(mfdb)
 mdb <- mfdb('Iceland')
 #,db_params = list(host='hafgeimur.hafro.is'))
 #after destroying the schema, the mfdb package needs to be reloaded 
@@ -173,48 +174,11 @@ vessel_map <-
   select(synis_id,skip,saga_nr) %>% 
   compute(name='vessel_map',temporary=FALSE)
 
-#labels observer (1/2/8) synis_id that both contain shrimp and have a skiki
-#removed the requirement to have shrimp
-dbRemoveTable(mar, 'SEA_fjords')
-SEA_fjords <-
-  # lesa_lengdir(mar) %>% 
-  # inner_join(tbl(mar,'species_key')) %>% 
-  # filter(tegund==41) %>% 
-  # inner_join(lesa_stodvar(mar) %>% 
-  #              filter(synaflokkur %in% c(1,2,8))) %>% 
-  lesa_stodvar(mar) %>% 
-  filter(synaflokkur %in% c(1,2,8)) %>% 
-  #  filter(ar>1988) %>% 
-  filter(skiki %in% c(31,32,34,52,53,55,56,59,62,63)) %>% 
-  filter(leidangur!='VER-91') %>% #this one inluded in indices
-  select(synis_id) %>% 
-  mutate(inSEA_fjords=1) %>% 
-  distinct %>% 
-  compute(name='SEA_fjords',temporary=FALSE)
-
-
-x<-data_frame(lat=c(65.56477,65.74116,65.90471,65.81138,65.56477), 
-              lon=c(-23.47156,-22.98665,-23.92795,-24.21319,-23.47156)) 
-x.isa<-data_frame(lat=c(65.96477,66.24116,66.50471,66.451138,65.96477)-0.25, 
-                  lon=c(-22.67156,-21.98665,-22.92795,-23.51319,-22.67156)) 
-skiki_areas<-
-  lesa_stodvar(mar) %>%
-  filter(synaflokkur %in% c(1,2,8,14,20,31,37)) %>% 
-  select(synis_id, lat=kastad_n_breidd,lon=kastad_v_lengd) %>% 
-  collect(n=Inf) %>% 
-  mutate(inFjord1 = geo::geoinside(., x, option=3) | geo::geoinside(., x.isa, option=3),
-         inFjord = ifelse(inFjord1, 1, 0)) %>% 
-  select(-inFjord1)
-#TO BE COMPLETE, THIS LIST SHOULD BE UPDATED WITH OTHER FJORDS, POSSIBLY ALL FJORDS
-dbWriteTable(conn = mar, 
-             value = skiki_areas,
-             name = 'skiki_areas',
-             overwrite = TRUE)
-
 
 stations <-
   lesa_stodvar(mar) %>% 
-  left_join(tbl(mar,'skiki_areas') %>% select(synis_id, inFjord)) %>%
+  left_join(tbl(mar,'skiki_areas') %>% 
+              select(synis_id, in.arn, in.isa, corrected_areacell)) %>%
   left_join(tbl(mar,'vessel_map')) %>% 
   #left_join(tbl(mar,'catch_map')) %>% 
   mutate(saga_nr = nvl(saga_nr,0),
@@ -241,9 +205,6 @@ stations <-
          institute = 'MRI',
          vessel = concat(concat(skip,'-'),saga_nr)) %>% 
   left_join(tbl(mar,'gear_mapping'),by='veidarfaeri') %>% 
-  select(inFjord,synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
-         gear,sampling_type,depth=dypi_kastad,vessel,reitur,smareitur,skiki,fjardarreitur,
-         leidangur,toglengd,tognumer) %>% 
   #below converts areacell to skiki format when:
   #   - lat and lon show it to be within skikis 52 or 53, OR
   #   - skiki not registered as 52 or 53, but sampling types are INS/XINS/XS or synis_id are SEA_fjords.
@@ -251,21 +212,39 @@ stations <-
   #   - also possibly there are samples labelled as 52,53 with locations outside these fjords that have reitur based areacell
   left_join(SEA_fjords) %>% 
   mutate(areacell=ifelse(!(skiki %in% c(52,53)) & (sampling_type %in% c('INS', 'XINS', 'XS') | inSEA_fjords==1), concat(concat(skiki,'_'),fjardarreitur), as.character(10*reitur+nvl(smareitur,1))),
-         areacell=ifelse(inFjord==1, concat(concat(skiki,'_'),fjardarreitur), areacell)) %>% 
+         areacell=ifelse(in.arn==1 | in.isa==1, concat(concat(skiki,'_'),fjardarreitur), areacell),
+         areacell=ifelse(!is.na(corrected_areacell), corrected_areacell, areacell)) %>%  
+  #redefining sampling_type to include extra tows with no tognumer in Ísafjörðurdjúp
+  # mutate(tognumer = ifelse(sampling_type == 'XS' &
+  #                            leidangur %in% isa.h[25:length(isa.h)] &
+  #                            ar > 2011 &
+  #                            areacell %in% c('53_1.1', '53_1.2', '53_1.3', '53_1.4', '53_3', '53_5') &
+  #                            is.na(tognumer),
+  #                          1000, tognumer),
+  #        sampling_type=ifelse(tognumer==1000, 'INS', sampling_type)) %>% 
+  select(synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
+         gear,sampling_type,depth=dypi_kastad,vessel,reitur,smareitur,skiki,fjardarreitur,
+         leidangur,toglengd,tognumer,areacell) %>% 
+  #EVENTUALLY skiki_areas NEEDS TO BE UPDATED TO INCLUDE ALL INSHORE AREAS SO THAT AREACELL DEF IS NOT DEPENDENT ON SAMPLING TYPE. Then only those which
+  #are defined as within fjords could be added, now many will repeat
+  #not sure that XS sampling type should use fjardarreitur for area size definition
   mutate(towlength = arcdist(lat,lon,lat1,lon1), 
          #SHRIMP specific
          season = ifelse(man %in% 1:2,1,ifelse(man %in% 3:5, 2, ifelse(man %in% 9:10, 3, 4)))) %>%
   ##why is length taken from lat / long rather than toglengd? Former method causes 26 rows of INS data to have length = 0
   distinct() %>% 
   group_by(ar, fjardarreitur, skiki, season) %>%
-  mutate(towcount = ifelse(sampling_type=='INS' & !is.na(fjardarreitur) & !is.na(tognumer), n(), NA)) %>% 
+  mutate(towcount = ifelse(sampling_type %in% c('INS', 'XS', 'XINS', 'SEA') & !is.na(fjardarreitur) & !is.na(tognumer), n(), #these are fjardarreiturs defined by Inga's corrections (unless she excluded some combinations of fjardarreitur x tow)
+                           ifelse(sampling_type %in% c('XS','XINS','SEA') & !is.na(fjardarreitur) & is.na(tognumer), 1, #these are fjardarreiturs not defined by by Inga, still grouping by them to reduce sample size, even though scale shouldn't really matter because these are not being used for indices, only catchdistributions
+                                  ifelse(sampling_type %in% c('XS','XINS','SEA') & is.na(fjardarreitur), 1, NA)))) %>% #these don't have a fjardarreitur so just count as 1 haul
   ungroup() %>% 
-  select(-c(inFjord,inSEA_fjords,lat1,lon1,reitur,smareitur,fjardarreitur,skiki,leidangur, season)) %>% 
+  select(-c(lat1,lon1,reitur,smareitur,fjardarreitur,skiki,leidangur, season)) %>% 
   inner_join(tbl(mar,'reitmapping') %>% 
                select(areacell=GRIDCELL, size),
              by='areacell') %>% 
+  #below differs from how towlength imported in original database
+  mutate(towlength = ifelse(!is.na(toglengd), toglengd, towlength)) %>%   
   rename(tow=synis_id) %>% 
-  rename(towlength_original = toglengd) %>% 
   rename(month = man) %>% 
   rename(year = ar) %>% 
   rename(latitude =lat) %>% 
@@ -343,9 +322,14 @@ ldist <-
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
          kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)),
          age = 0,
-         weight = ifelse(is.na(mean_wt) | is.na(towlength_original) | is.na(towcount) | is.na(size), 
-                           NA, (mean_wt/towlength_original)/towcount*size)) %>% 
-  select(-c(r,biom.r,tegund, mean_wt, towcount, size, towlength, towlength_original)) %>% 
+         #weight VALUES ARE SCALED BY TOWCOUNT, TOWLENGTH, AND SIZE OF AREA
+         #these represent mean weights, so scaling is done a priori so that it is incorporated
+         #when weight is multiplied by number. weight should be mean, not total, weight here because a count column is 
+         #also included - that means that wehn using mfdb_sample_totalweight, it 
+         #multiplies the 2 columns to generate total weight
+         weight = ifelse(is.na(mean_wt) | is.na(towcount), 
+                         NA, (mean_wt/ifelse(sampling_type %in% c('XS', 'XINS', 'SEA'), 1, towlength))/towcount*ifelse(sampling_type %in% c('XS', 'XINS', 'SEA'), 1, size))) %>% 
+  select(-c(r,biom.r,tegund, mean_wt, towcount, size, towlength)) %>% 
   rename(sex=kyn) %>% 
   rename(maturity_stage = kynthroski) %>% 
   rename(length = lengd) %>% 
