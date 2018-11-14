@@ -115,9 +115,12 @@ stations_shr.1 <-
   #   - likely this means there are offshore samples in INS/XINS/XS that are labelled incorrectly with skiki based areacell
   #   - also possibly there are samples labelled as 52,53 with locations outside these fjords that have reitur based areacell
   left_join(SEA_fjords) %>% 
-  mutate(areacell=ifelse(!(skiki %in% c(52,53)) & (sampling_type %in% c('INS', 'XINS', 'XS') | inSEA_fjords==1), concat(concat(skiki,'_'),fjardarreitur), as.character(10*reitur+nvl(smareitur,1))),
-         areacell=ifelse(in.arn==1 | in.isa==1, concat(concat(skiki,'_'),fjardarreitur), areacell),
-         areacell=ifelse(!is.na(corrected_areacell), corrected_areacell, areacell))  
+  mutate(areacell=ifelse(in.arn==1 | in.isa==1, concat(concat(skiki,'_'),fjardarreitur), as.character(10*reitur+nvl(smareitur,1))),
+         areacell=ifelse(!is.na(corrected_areacell), corrected_areacell, areacell),
+         areacell=ifelse(in.arn==0 & 
+                           in.isa==0 & 
+                            is.na(corrected_areacell) & 
+                              (sampling_type %in% c('INS', 'XINS', 'XS') | inSEA_fjords==1), concat(concat(skiki,'_'),fjardarreitur), areacell))  
 
 try(dbRemoveTable(mar,'stations_shr.1'), silent=T)
 stations_shr.1 %>% 
