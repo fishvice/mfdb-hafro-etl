@@ -1,7 +1,11 @@
-#devtools::install_github('mareframe/mfdb',ref='6.x')
+#devtools::install_github('mareframe/mfdb',ref='6.x', force = TRUE)
+#####install.packages("stringi") #only do this if there is an error installing tidyverse
+#install.packages("tidyverse")
+#install.packages("DBI")
+#install.packages("ROracle")
 #devtools::install_github('fishvice/mar', force = TRUE)
 #devtools::install_github('Hafro/rgadget')
-#install.packages("tidyverse")
+library(ROracle)
 library(mfdb)
 library(broom)
 library(tidyverse)
@@ -24,12 +28,7 @@ mdb <- mfdb('Iceland')
 #after destroying the schema, the mfdb package needs to be reloaded 
 
 
-source("R/shrimp_support_tables.R")
-
-
-#DOUBLE CHECK WITH INGA THAT EXTRA ISAFJORDURDJUP TOWS STILL INCLUDED -
-# WILL NEED TO REDO THE #TOWS TO FORM BIOMASS INDEX IF NOT, OR # MAY CHANGE A FEW YEARS AGO
-# ALSO - WHY ARE THERE SO MANY MONTHS? TRANSLATED OK INTO SEASONS?
+try(source("R/shrimp_support_tables.R"))
 
 
 ## Import area definitions
@@ -175,7 +174,7 @@ vessel_map <-
   compute(name='vessel_map',temporary=FALSE)
 
 
-stations <-
+stations.1 <-
   lesa_stodvar(mar) %>% 
   left_join(tbl(mar,'skiki_areas') %>% 
               select(synis_id, in.arn, in.isa, corrected_areacell)) %>%
@@ -213,15 +212,22 @@ stations <-
   left_join(SEA_fjords) %>% 
   mutate(areacell=ifelse(!(skiki %in% c(52,53)) & (sampling_type %in% c('INS', 'XINS', 'XS') | inSEA_fjords==1), concat(concat(skiki,'_'),fjardarreitur), as.character(10*reitur+nvl(smareitur,1))),
          areacell=ifelse(in.arn==1 | in.isa==1, concat(concat(skiki,'_'),fjardarreitur), areacell),
-         areacell=ifelse(!is.na(corrected_areacell), corrected_areacell, areacell)) %>%  
+         areacell=ifelse(!is.na(corrected_areacell), corrected_areacell, areacell))
+
+dbRemoveTable(mar,'stations.1')
+stations.1 %>% 
+  compute(name='stations.1',temporary=FALSE,indexes = list('synis_id'))
+
+stations <-
+  tbl(mar, 'stations.1') %>% 
   #redefining sampling_type to include extra tows with no tognumer in Ísafjörðurdjúp
-  # mutate(tognumer = ifelse(sampling_type == 'XS' &
-  #                            leidangur %in% isa.h[25:length(isa.h)] &
-  #                            ar > 2011 &
-  #                            areacell %in% c('53_1.1', '53_1.2', '53_1.3', '53_1.4', '53_3', '53_5') &
-  #                            is.na(tognumer),
-  #                          1000, tognumer),
-  #        sampling_type=ifelse(tognumer==1000, 'INS', sampling_type)) %>% 
+  mutate(tognumer = ifelse(sampling_type == 'XS' &
+                             leidangur %in% isa.h[25:length(isa.h)] &
+                             ar > 2011 &
+                             areacell %in% c('53_1.1', '53_1.2', '53_1.3', '53_1.4', '53_3', '53_5') &
+                             is.na(tognumer),
+                           1000, tognumer),
+         sampling_type=ifelse(tognumer==1000, 'INS', sampling_type)) %>%
   select(synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
          gear,sampling_type,depth=dypi_kastad,vessel,reitur,smareitur,skiki,fjardarreitur,
          leidangur,toglengd,tognumer,areacell) %>% 

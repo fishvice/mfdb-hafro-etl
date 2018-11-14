@@ -14,7 +14,10 @@ add_shrimp <- TRUE
 ## oracle connection 
 mar <- connect_mar()
 
-## Create connection to MFDB database, as the Icelandic case study
+## Erase the old database 
+mdb <- mfdb('Iceland', destroy_schema = TRUE);  library(mfdb)
+
+##Create connection to MFDB database, as the Icelandic case study
 mdb <- mfdb('Iceland')#,db_params = list(host='hafgeimur.hafro.is'))
 
 ## Import area definitions
@@ -579,4 +582,4 @@ tmp <-
                      data_source = 'statlant.foreign.landings',
                      .)
 
-if(add_shrimp){source('R/initdb_add_shrimp.R')}
+if(add_shrimp){try(source('R/initdb_add_shrimp.R'))}

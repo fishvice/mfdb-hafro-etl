@@ -1,4 +1,4 @@
-source("R/shrimp_support_tables.R")
+try(source("R/shrimp_support_tables.R"))
 
 ## Import area definitions
 reitmapping_fjords <-
@@ -86,7 +86,7 @@ mfdb_import_sampling_type(mdb, data.frame(
 
 #labels observer (1/2/8) synis_id that both contain shrimp and have a skiki
 #removed the requirement to have shrimp
-stations_shr <-
+stations_shr.1 <-
   lesa_stodvar(mar) %>% 
   left_join(tbl(mar,'skiki_areas') %>%
               select(synis_id, in.arn, in.isa, corrected_areacell)) %>%
@@ -117,15 +117,22 @@ stations_shr <-
   left_join(SEA_fjords) %>% 
   mutate(areacell=ifelse(!(skiki %in% c(52,53)) & (sampling_type %in% c('INS', 'XINS', 'XS') | inSEA_fjords==1), concat(concat(skiki,'_'),fjardarreitur), as.character(10*reitur+nvl(smareitur,1))),
          areacell=ifelse(in.arn==1 | in.isa==1, concat(concat(skiki,'_'),fjardarreitur), areacell),
-         areacell=ifelse(!is.na(corrected_areacell), corrected_areacell, areacell)) %>%  
+         areacell=ifelse(!is.na(corrected_areacell), corrected_areacell, areacell))  
+
+try(dbRemoveTable(mar,'stations_shr.1'), silent=T)
+stations_shr.1 %>% 
+  compute(name='stations_shr.1',temporary=FALSE,indexes = list('synis_id'))
+
+stations_shr <-
+  tbl(mar, 'stations_shr.1') %>% 
   #redefining sampling_type to include extra tows with no tognumer in Ísafjörðurdjúp
-  # mutate(tognumer = ifelse(sampling_type == 'XS' &
-  #                                 leidangur %in% isa.h[25:length(isa.h)] &
-  #                                 ar > 2011 &
-  #                                 areacell %in% c('53_1.1', '53_1.2', '53_1.3', '53_1.4', '53_3', '53_5') &
-  #                                 is.na(tognumer),
-  #                                       1000, tognumer),
-  #       sampling_type=ifelse(tognumer==1000, 'INS', sampling_type)) %>% 
+  mutate(tognumer = ifelse(sampling_type == 'XS' &
+                                  leidangur %in% isa.h[25:length(isa.h)] &
+                                  ar > 2011 &
+                                  areacell %in% c('53_1.1', '53_1.2', '53_1.3', '53_1.4', '53_3', '53_5') &
+                                  is.na(tognumer),
+                                        1000, tognumer),
+        sampling_type=ifelse(tognumer==1000, 'INS', sampling_type)) %>%
   select(synis_id,ar,man,lat=kastad_n_breidd,lon=kastad_v_lengd,lat1=hift_n_breidd,lon1=hift_v_lengd,
          gear,sampling_type,depth=dypi_kastad,vessel,reitur,smareitur,skiki,fjardarreitur,
          leidangur,toglengd,tognumer,areacell) %>% 
@@ -159,7 +166,7 @@ stations_shr <-
   anti_join(tbl(mar, 'stations')) %>% 
   distinct()
 
-dbRemoveTable(mar,'stations_shr')
+try(dbRemoveTable(mar,'stations_shr'), silent=T)
 stations_shr %>% 
   compute(name='stations_shr',temporary=FALSE,indexes = list('tow'))
 
@@ -173,7 +180,7 @@ tbl(mar,'stations_shr') %>%
 
 
 ## length distributions - replaces original table
-dbRemoveTable(mar,'ldist')
+try(dbRemoveTable(mar,'ldist'), silent=T)
 lesa_lengdir(mar) %>% 
   inner_join(tbl(mar,'species_key')) %>%
   skala_med_toldum2() %>% 
@@ -265,11 +272,11 @@ port2division <- function(hofn, skiki = FALSE){
   return(data)
 }
 
-dbRemoveTable(mar,'port2sk')
+
 port2division(0:999, skiki = TRUE) %>% 
   left_join(gridcell.mapping) %>% 
-  dbWriteTable(mar,'port2sk',.)
-dbRemoveTable(mar,'kfteg2sk')
+  dbWriteTable(mar,'port2sk',.,overwrite=TRUE)
+
 kfteg2division<-
   data_frame(
     division = c(31, 32, 34, 52, 53, 55, 56, 59, 62, 63),
@@ -277,7 +284,7 @@ kfteg2division<-
     #landings by snaefellsness default to division 31, but actually for 32 & 34 also
   ) %>% 
   left_join(gridcell.mapping)
-dbWriteTable(mar,'kfteg2sk',kfteg2division)
+dbWriteTable(mar,'kfteg2sk',kfteg2division,overwrite=TRUE)
 
 
 landed_catch_shrimp <- 
