@@ -190,7 +190,6 @@ lesa_lengdir(mar) %>%
   rename(tow=synis_id) %>% 
   compute(name='ldist',temporary=FALSE)
 
-#could be that SEA samples have weight not correct here
 #stations_shr should contain sampling types INS, XINS, XS and any SEA samples from within fjords that now have
 #skiki_based areacells (these are doubled in tow taxonomy due to first import of SEA samples that have reitur-based areacells)
 #this also produces an additional column mean_wt to accomodate biomass-based indices
@@ -237,9 +236,35 @@ mfdb_import_survey(mdb,
                    data_source = 'iceland-ldist-infjord',
                    ldist_shrimp %>% filter(!(tow %in% c(1e5,4e5))) %>% mutate(vessel =ifelse(vessel=='-0',NA,vessel) ))
 
-#NEED TO FIGURE OUT WHY ALL WEIGHTS ARE COMING OUT TO BE NA
-#ALSO NEED TO MAKE SURE THAT LDIST IS BEING SAMPLED WITH WEIGHTS RATHER THAN COUNTS FOR 
-#CATCH DISTRIBUTION LIKELIHOODS
+
+## age -- length data - ok no age but there is weight data
+
+aldist <-
+  lesa_kvarnir(mar) %>% 
+  rename(tow=synis_id) %>% 
+  inner_join(tbl(mar,'species_key')) %>%
+  right_join(tbl(mar,'stations_shr'), #%>% 
+             select(-towlength), 
+             by = 'tow') %>% 
+  mutate(lengd = nvl(lengd,0),
+         count = 1,
+         kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M',NA)),
+         kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)))%>%
+  select(tow, latitude,longitude, year,month, areacell, gear, vessel,
+         sampling_type,count,species,
+         age=aldur,sex=kyn,maturity_stage = kynthroski,
+         length = lengd, no = nr, weight = oslaegt,
+         gutted = slaegt, liver = lifur, gonad = kynfaeri) %>% 
+  collect(n=Inf) %>% 
+  as.data.frame()
+
+
+mfdb_import_survey(mdb,
+                   data_source = 'iceland-aldist-infjord',
+                   aldist%>% 
+                     filter(!(tow %in% c(1e5,4e5))) %>% 
+                     mutate(vessel =ifelse(vessel=='-0',NA,vessel)))
+
 
 ## landings 
 port2division <- function(hofn, skiki = FALSE){
