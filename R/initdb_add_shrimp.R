@@ -167,6 +167,7 @@ stations_shr <-
   #Note that anti-join only removes those found within stations with same areacell
   #THERE WILL BE DUPLICATES FOR 1,2,8 WITH DIFFERENT AREACELLS
   anti_join(tbl(mar, 'stations')) %>% 
+  mutate(year = ifelse(month==12, year + 1, year)) %>% #HOTFIX FOR TIMING
   distinct()
 
 try(dbRemoveTable(mar,'stations_shr'), silent=T)
@@ -340,13 +341,16 @@ landed_catch_shrimp <-
          sampling_type='LND',
          gear = nvl(gear,'LLN')) %>% 
   select(weight_total=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
-         gear)
+         gear) %>% 
+  mutate(year = ifelse(month==12, year + 1, year)) #HOTFIX FOR TIMING
+  
 
-landed_catch_shrimp %>% 
-  group_by(species,year) %>% 
-  #summarise(catch=sum(ifelse(year>1995,count,count/0.8))/1000) %>% 
-  summarise(catch=sum(weight_total)/1000) %>% 
-  arrange(desc(year)) %>% collect(n=Inf)
+# landed_catch_shrimp %>% 
+#   group_by(species,year) %>% 
+#   #summarise(catch=sum(ifelse(year>1995,count,count/0.8))/1000) %>% 
+#   summarise(catch=sum(weight_total)/1000) %>% 
+#   arrange(desc(year)) %>% 
+#   collect(n=Inf)
 
 mfdb_import_survey(mdb,
                    data_source = 'commercial.landings',
@@ -358,6 +362,7 @@ mfdb_import_survey(mdb,
                                             '5688-0','5721-0','8076-0','8091-0','9083-0')),
                             weight_total >0,
                             !is.na(weight_total)) %>% 
+                     collect(n=Inf) %>% 
                      as.data.frame())
 
 
