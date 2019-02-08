@@ -324,6 +324,7 @@ landed_catch_shrimp <-
          ar, man, hofn, magn_oslaegt, 
          veidisvaedi, l_dags, saga_nr) %>% 
   dplyr::union_all(tbl(mar,'landed_catch_pre94') %>% 
+                     filter(ar < 1994, fteg == 41) %>% 
                      mutate(l_dags = to_date(concat(ar,man),'yyyymm'),
                             saga_nr = 0,
                             kfteg = NA)) %>%
@@ -353,7 +354,7 @@ landed_catch_shrimp <-
 #   collect(n=Inf)
 
 mfdb_import_survey(mdb,
-                   data_source = 'commercial.landings',
+                   data_source = 'shrimp.commercial.landings',
                    data_in = landed_catch_shrimp %>% 
                      #select(-r) %>% 
                      mutate(vessel =ifelse(vessel=='-0',NA,vessel)) %>% 
