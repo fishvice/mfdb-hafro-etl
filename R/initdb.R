@@ -213,7 +213,9 @@ ldist <-
   mutate(lengd = nvl(lengd,0), #ifelse(is.na(lengd), 0, lengd),
          fjoldi = nvl(fjoldi,0), #ifelse(is.na(fjoldi), 0, fjoldi),
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
-         kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)),
+         kynthroski = ifelse(tegund==9, 
+                             ifelse(kynthroski > 2,2,ifelse(kynthroski %in% c(1,2),1,NA)), 
+                             ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA))),
          age = 0)%>%
   select(-c(r,tegund)) %>% 
   rename(sex=kyn) %>% 
@@ -268,7 +270,8 @@ mfdb_import_vessel_taxonomy(mdb,
                                               '942-0','949-0','95-0','9501-0','9502-0','9503-0','953-0','958-0','96-0','969-0',
                                               '97-0','970-0','976-0','98-0','989-0','99-0','9919-0', 
                                               '1235-0','1287-0','1456-0','301-0','341-0','352-0','373-0','414-0','441-0',
-                                              '447-0','505-0','515-0','529-0','56-0','590-0','623-0','705-0','748-0','805-0','810-0','952-0','983-0'),
+                                              '447-0','505-0','515-0','529-0','56-0','590-0','623-0','705-0','748-0','805-0',
+                                              '810-0','952-0','983-0','1585-5','2493-24','6214-53'),
                                        length=NA,tonnage=NA,power=NA,full_name = 'Old unknown vessel'))
 
 
@@ -582,5 +585,4 @@ tmp <-
                      data_source = 'statlant.foreign.landings',
                      .)
 
-#PROBLEM HERE - adding shrimp landings doubles other landings from 1991 and presumably more recently
 if(add_shrimp){try(source('R/initdb_add_shrimp.R'))}

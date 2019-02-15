@@ -329,7 +329,9 @@ ldist <-
          lengd = ifelse(lengd > 4 & tegund == 41, lengd/10, lengd), #fixes 2017 shrimp entered in mm
          fjoldi = nvl(fjoldi,0), 
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
-         kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)),
+         kynthroski = ifelse(tegund==9, 
+                             ifelse(kynthroski > 2,2,ifelse(kynthroski %in% c(1,2),1,NA)), 
+                             ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA))),
          age = 0,
          #weight VALUES ARE SCALED BY TOWCOUNT, TOWLENGTH, AND SIZE OF AREA
          #these represent mean weights, so scaling is done a priori so that it is incorporated
@@ -496,16 +498,16 @@ dbWriteTable(mar,'kfteg2sk',kfteg2division)
 ## landing pre 1994 from fiskifélagið
 dbRemoveTable(mar,'landed_catch_pre94') 
 bind_rows(
-  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = '^[0-9]+',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi.hafro.is/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = '^[0-9]+',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep='\t')) %>% 
     bind_rows() %>% 
     rename_(.dots=stats::setNames(colnames(.),c('vf',	'skip',	'teg',	'ar',	'man',	'hofn',	'magn'))) %>% 
     mutate(magn=as.numeric(magn)),
-  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'ready',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi.hafro.is/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'ready',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep='\t')) %>% 
     bind_rows() %>% 
     rename_(.dots=stats::setNames(colnames(.),c(	'ar','hofn',	'man',	'vf',	'teg', 'magn'))),
-  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'afli.[0-9]+$',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi.hafro.is/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'afli.[0-9]+$',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep=';')) %>% 
     bind_rows()%>% 
     rename_(.dots=stats::setNames(colnames(.),c(	'ar','hofn',	'man',	'vf',	'teg', 'magn')))) %>%
@@ -720,7 +722,7 @@ mfdb_import_survey(mdb,
                    oldLandingsByMonth)
 
 ## statlant data, need to look further into this
-load('/net/hafkaldi/export/home/haf/einarhj/r/Pakkar/landr/data/lices.rda')
+load('/net/hafkaldi.hafro.is/export/home/haf/einarhj/r/Pakkar/landr/data/lices.rda')
 tmp <- 
   lices %>%
   filter(as.numeric(sare)==5,tolower(div)=='a',
