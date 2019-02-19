@@ -295,7 +295,10 @@ aldist <-
   mutate(lengd = nvl(lengd,0),
          count = 1,
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M',NA)),
-         kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)))%>%
+         kynthroski = ifelse(tegund==9, 
+                             ifelse(kynthroski > 2,2,ifelse(kynthroski %in% c(1,2),1,NA)), 
+                             ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)))
+          )%>%
   select(tow, latitude,longitude, year,month, areacell, gear, vessel,
          sampling_type,count,species,
          age=aldur,sex=kyn,maturity_stage = kynthroski,
