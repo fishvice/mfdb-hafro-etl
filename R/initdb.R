@@ -214,7 +214,7 @@ ldist <-
          fjoldi = nvl(fjoldi,0), #ifelse(is.na(fjoldi), 0, fjoldi),
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
          kynthroski = ifelse(tegund==9, 
-                             ifelse(kynthroski > 2,2,ifelse(kynthroski %in% c(1,2),1,NA)), 
+                             ifelse(kynthroski > 2 & kyn == 'F',2,ifelse(kynthroski %in% c(1,2) & kyn == 'F',1,NA)), 
                              ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA))),
          age = 0)%>%
   select(-c(r,tegund)) %>% 
@@ -296,7 +296,7 @@ aldist <-
          count = 1,
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M',NA)),
          kynthroski = ifelse(tegund==9, 
-                             ifelse(kynthroski > 2,2,ifelse(kynthroski %in% c(1,2),1,NA)), 
+                             ifelse(kynthroski > 2 & kyn == 'F',2,ifelse(kynthroski %in% c(1,2) & kyn == 'F',1,NA)), 
                              ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)))
           )%>%
   select(tow, latitude,longitude, year,month, areacell, gear, vessel,
