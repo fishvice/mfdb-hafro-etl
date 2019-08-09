@@ -132,7 +132,7 @@ stations <-
 #         lon=nvl(geoconvert1(lon),0)) %>% 
   mutate(areacell=as.character(10*reitur+nvl(smareitur,1))) %>% 
          ## this bit should also be fixed soon
-#         lon1 = nvl(geoconvert1(lon1),lon),
+#         lon1 =   nvl(geoconvert1(lon1),lon),
 #         lat1 = nvl(geoconvert1(lat1),lat)) %>% 
   mutate(towlength = arcdist(lat,lon,lat1,lon1)) %>%
   select(-c(lat1,lon1,reitur,smareitur)) %>% 

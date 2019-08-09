@@ -225,7 +225,7 @@ stations <-
   tbl(mar, 'stations.1') %>% 
   #redefining sampling_type to include extra tows with no tognumer in Ísafjörðurdjúp
   mutate(tognumer = ifelse(sampling_type == 'XS' &
-                             leidangur %in% isa.h[25:length(isa.h)] &
+                             leidangur %in% local(isa.h[25:length(isa.h)]) &
                              ar > 2011 &
                              areacell %in% c('53_1.1', '53_1.2', '53_1.3', '53_1.4', '53_3', '53_5') &
                              is.na(tognumer),
