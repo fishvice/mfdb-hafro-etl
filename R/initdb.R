@@ -1,15 +1,26 @@
 ## devtools::install_github('mareframe/mfdb',ref='6.x')
+library(tidyverse)
+library(tidyr)
 library(mfdb)
 library(mar)
+library(purrr)
 library(purrrlyr)
+library(stringr)
+library(ROracle)
 library(dbplyr)
-  
+
+
+add_shrimp <- FALSE
+
 
 ## oracle connection 
 mar <- connect_mar()
 
+
 ## Create connection to MFDB database, as the Icelandic case study
-mdb <- mfdb('Iceland')#,destroy_schema = TRUE)#,db_params = list(host='hafgeimur.hafro.is'))
+
+## Erase the old database 
+mdb <- mfdb('Iceland', destroy_schema = TRUE)
 
 ## Import area definitions
 reitmapping <- read.table(
@@ -22,7 +33,8 @@ reitmapping <- read.table(
          lon = geo::sr2d(GRIDCELL)$lon) %>% 
   by_row(safely(function(x) geo::srA(x$GRIDCELL),otherwise=NA)) %>% 
   unnest(size=.out %>% map('result')) %>% 
-  select(-.out) %>% 
+  select(-.out) %>%
+  transmute(GRIDCELL = as.character(GRIDCELL), DIVISION, SUBDIVISION = as.character(SUBDIVISION), id, lat, lon, size) %>% 
   na.omit()
 
 dbWriteTable(mar,'reitmapping',as.data.frame(reitmapping),overwrite=TRUE)
@@ -117,11 +129,11 @@ stations <-
   ## this part will be fixed in the db soon
 #  mutate(lat=nvl(geoconvert1(lat),0),
 #         lon=nvl(geoconvert1(lon),0)) %>% 
-  mutate(areacell=10*reitur+nvl(smareitur,1)) %>% 
+  mutate(areacell=as.character(10*reitur+nvl(smareitur,1))) %>% 
          ## this bit should also be fixed soon
-#         lon1 = nvl(geoconvert1(lon1),lon),
+#         lon1 =   nvl(geoconvert1(lon1),lon),
 #         lat1 = nvl(geoconvert1(lat1),lat)) %>% 
-  mutate(length = arcdist(lat,lon,lat1,lon1)) %>%
+  mutate(towlength = arcdist(lat,lon,lat1,lon1)) %>%
   select(-c(lat1,lon1,reitur,smareitur)) %>% 
   inner_join(tbl(mar,'reitmapping') %>% 
                select(areacell=GRIDCELL),
@@ -195,12 +207,14 @@ lesa_lengdir(mar) %>%
 ldist <- 
   tbl(mar,'ldist') %>% 
   right_join(tbl(mar,'stations') %>% 
-               select(-length),
+               select(-towlength),
              by = 'tow') %>% 
   mutate(lengd = nvl(lengd,0), #ifelse(is.na(lengd), 0, lengd),
          fjoldi = nvl(fjoldi,0), #ifelse(is.na(fjoldi), 0, fjoldi),
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M','')),
-         kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)),
+         kynthroski = ifelse(tegund==9, 
+                             ifelse(kynthroski > 2 & kyn == 'F',2,ifelse(kynthroski %in% c(1,2) & kyn == 'F',1,NA)), 
+                             ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA))),
          age = 0)%>%
   select(-c(r,tegund)) %>% 
   rename(sex=kyn) %>% 
@@ -259,6 +273,7 @@ mfdb_import_vessel_taxonomy(mdb,
                                               '805-0','810-0','952-0','983-0', '101-0','1140-0','15-0','165-0','208-0','230-0','377-0',
                                               '385-0','420-0','476-0','48-0','510-0','517-0','575-0','588-0','606-0','645-0','834-0',
                                               '844-0','851-0','855-0','883-0','921-0','938-0'),
+
                                        length=NA,tonnage=NA,power=NA,full_name = 'Old unknown vessel'))
 
 
@@ -273,18 +288,19 @@ mfdb_import_survey(mdb,
 
 ## age -- length data
 
-
-
 aldist <-
   lesa_kvarnir(mar) %>% 
   rename(tow=synis_id) %>% 
   inner_join(tbl(mar,'species_key')) %>%
   right_join(tbl(mar,'stations') %>% 
-               select(-length)) %>%
+               select(-towlength)) %>%
   mutate(lengd = nvl(lengd,0),
          count = 1,
          kyn = ifelse(kyn == 2,'F',ifelse(kyn ==1,'M',NA)),
-         kynthroski = ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)))%>%
+         kynthroski = ifelse(tegund==9, 
+                             ifelse(kynthroski > 2 & kyn == 'F',2,ifelse(kynthroski %in% c(1,2) & kyn == 'F',1,NA)), 
+                             ifelse(kynthroski > 1,2,ifelse(kynthroski == 1,1,NA)))
+          )%>%
   select(tow, latitude,longitude, year,month, areacell, gear, vessel,
          sampling_type,count,species,
          age=aldur,sex=kyn,maturity_stage = kynthroski,
@@ -328,16 +344,16 @@ port2division(0:999) %>%
 
 dbRemoveTable(mar,'landed_catch_pre94') 
 bind_rows(
-  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = '^[0-9]+',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi.hafro.is/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = '^[0-9]+',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep='\t')) %>% 
     bind_rows() %>% 
     rename_(.dots=stats::setNames(colnames(.),c('vf',	'skip',	'teg',	'ar',	'man',	'hofn',	'magn'))) %>% 
     mutate(magn=as.numeric(magn)),
-  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'ready',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi.hafro.is/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'ready',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep='\t')) %>% 
     bind_rows() %>% 
     rename_(.dots=stats::setNames(colnames(.),c(	'ar','hofn',	'man',	'vf',	'teg', 'magn'))),
-  list.files('/net/hafkaldi/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'afli.[0-9]+$',full.names = TRUE) %>% 
+  list.files('/net/hafkaldi.hafro.is/export/u2/reikn/R/Pakkar/Logbooks/Olddata',pattern = 'afli.[0-9]+$',full.names = TRUE) %>% 
     map(~read.table(.,skip=2,stringsAsFactors = FALSE,sep=';')) %>% 
     bind_rows()%>% 
     rename_(.dots=stats::setNames(colnames(.),c(	'ar','hofn',	'man',	'vf',	'teg', 'magn')))) %>%
@@ -550,7 +566,7 @@ mfdb_import_survey(mdb,
                    oldLandingsByMonth)
 
 ## statlant data, need to look further into this
-load('/net/hafkaldi/export/home/haf/einarhj/r/Pakkar/landr/data/lices.rda')
+load('/net/hafkaldi.hafro.is/export/home/haf/einarhj/r/Pakkar/landr/data/lices.rda')
 tmp <- 
   lices %>%
   filter(as.numeric(sare)==5,tolower(div)=='a',
@@ -573,6 +589,7 @@ tmp <-
   mfdb_import_survey(mdb,
                      data_source = 'statlant.foreign.landings',
                      .)
+
 
 fiskifelagid_landing_pre82 <- 
   tbl_mar(mar,'fiskifelagid.vigtarskra66_81') %>%
@@ -647,4 +664,7 @@ mfdb_import_vessel_taxonomy(mdb,
                                               '1022-0', '102306-0', '102316-0', '102318-0', '102320-0',
                                               '1024-0', '102501-0', '102506-0', '102515-0', '102517-0'), 
                                        length=NA, tonnage=NA, power=NA, full_name = 'Old unknown vessel'))
+
+
+if(add_shrimp){try(source('R/initdb_add_shrimp.R'))}
 
