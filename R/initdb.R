@@ -3,13 +3,13 @@ library(mfdb)
 library(mar)
 library(purrrlyr)
 library(dbplyr)
-
+  
 
 ## oracle connection 
 mar <- connect_mar()
 
 ## Create connection to MFDB database, as the Icelandic case study
-mdb <- mfdb('Iceland')#,db_params = list(host='hafgeimur.hafro.is'))
+mdb <- mfdb('Iceland')#,destroy_schema = TRUE)#,db_params = list(host='hafgeimur.hafro.is'))
 
 ## Import area definitions
 reitmapping <- read.table(
@@ -36,14 +36,11 @@ mfdb_import_area(mdb,
                    as.data.frame()) 
 
 ## create area division (used for e.g. bootstrapping)
-mfdb_import_division(mdb,
-                     plyr::dlply(reitmapping,
-                                 'SUBDIVISION',
-                                 function(x) x$GRIDCELL))
+mfdb_import_division(mdb, reitmapping %>% split(.$SUBDIVISION) %>% map('GRIDCELL'))
 
 ## here some work on temperature would be nice to have instead of fixing the temperature
 mfdb_import_temperature(mdb, 
-                        expand.grid(year=1960:2020,
+                        expand.grid(year=1900:2100,
                                     month=1:12,
                                     areacell = reitmapping$GRIDCELL,
                                     temperature = 3))
@@ -73,16 +70,16 @@ dbWriteTable(conn = mar,
 ## Set-up sampling types
 
 mfdb_import_sampling_type(mdb, data.frame(
-  id = 1:17,
+  id = 1:18,
   name = c('SEA', 'IGFS','AUT','SMN','LND','LOG','INS','ACU','FLND','OLND','CAA',
-           'CAP','GRE','FAER','RED','RAC','LOBS'),
+           'CAP','GRE','FAER','RED','RAC','LOBS','ADH'),
   description = c('Sea sampling', 'Icelandic ground fish survey',
                   'Icelandic autumn survey','Icelandic gillnet survey',
                   'Landings','Logbooks','Icelandic nephrop survey',
                   'Acoustic capelin survey','Foreign vessel landings','Old landings (pre 1981)',
                   'Old catch at age','Capelin data','Eastern Greenland autumn survey',
                   'Faeroese summer survey','Redfish survey','Redfish accoustic survey',
-                  'Icelandic nephrops survey')))
+                  'Icelandic nephrops survey','Ad-hoc surveys')))
 
 ## stations table
 
@@ -103,9 +100,9 @@ stations <-
   lesa_stodvar(mar) %>% 
   left_join(tbl(mar,'vessel_map')) %>% 
   mutate(saga_nr = nvl(saga_nr,0)) %>% 
-  filter(synaflokkur %in% c(1,2,8,10,12,30,34,35,38)) %>% 
+  filter(synaflokkur %in% c(1,2,8,10,12,20,30,34,35,38)) %>% 
   mutate(sampling_type = ifelse(synaflokkur %in% c(1,2,8),'SEA',
-                                ifelse(synaflokkur %in% c(10,12),'CAP',
+                                ifelse(synaflokkur %in% c(10,12,20),'ADH',
                                        ifelse(synaflokkur == 30,'IGFS',
                                               ifelse(synaflokkur==35,'AUT',
                                                      ifelse(synaflokkur==38,'LOBS','SMN'))))),
@@ -258,7 +255,10 @@ mfdb_import_vessel_taxonomy(mdb,
                                               '942-0','949-0','95-0','9501-0','9502-0','9503-0','953-0','958-0','96-0','969-0',
                                               '97-0','970-0','976-0','98-0','989-0','99-0','9919-0', 
                                               '1235-0','1287-0','1456-0','301-0','341-0','352-0','373-0','414-0','441-0',
-                                              '447-0','505-0','515-0','529-0','56-0','590-0','623-0','705-0','748-0','805-0','810-0','952-0','983-0'),
+                                              '447-0','505-0','515-0','529-0','56-0','590-0','623-0','705-0','748-0',
+                                              '805-0','810-0','952-0','983-0', '101-0','1140-0','15-0','165-0','208-0','230-0','377-0',
+                                              '385-0','420-0','476-0','48-0','510-0','517-0','575-0','588-0','606-0','645-0','834-0',
+                                              '844-0','851-0','855-0','883-0','921-0','938-0'),
                                        length=NA,tonnage=NA,power=NA,full_name = 'Old unknown vessel'))
 
 
@@ -573,4 +573,78 @@ tmp <-
   mfdb_import_survey(mdb,
                      data_source = 'statlant.foreign.landings',
                      .)
+
+fiskifelagid_landing_pre82 <- 
+  tbl_mar(mar,'fiskifelagid.vigtarskra66_81') %>%
+  mutate(l_dags = to_date(concat(artal,concat('.',manudur)),'yyyy.mm'),
+         kfteg = 0,
+         magn_oslaegt = reiknistudull * magn,
+         veidisvaedi = 'I') %>% 
+  mutate(timabil = if_else(to_number(to_char(l_dags, "MM")) < 9,
+                           concat(to_number(to_char(l_dags, "YYYY")) -1, to_number(to_char(l_dags, "YYYY"))),
+                           concat(to_number(to_char(l_dags, "YYYY")), to_number(to_char(l_dags, "YYYY")) + 1))) %>% 
+  select(skip_nr,hofn=vinnsluhofn,
+         komunr=radlykill,l_dags,gerd=skipsgerd,
+         fteg,kfteg,magn_oslaegt,veidarfaeri,
+         ar = artal,man = manudur,timabil) %>% 
+  left_join(landings_map) %>% 
+  left_join(tbl_mar(mar,'kvoti.skipasaga'), by=c('skip_nr','saga_nr')) %>% 
+  mutate(vessel = concat(concat(nvl(skip_nr,''),'-'),nvl(saga_nr,0)),
+         flokkur = nvl(flokkur,0)) %>% 
+  #select(skip_nr,hofn,l_dags,saga_nr,gerd,fteg,kfteg,veidisvaedi,stada,veidarfaeri,magn_oslaegt, i_gildi,flokkur,ar,man) %>% 
+  #filter(veidisvaedi == 'I',flokkur != -4) %>% 
+  left_join(tbl(mar,'gear_mapping'),by='veidarfaeri') %>%
+  inner_join(tbl(mar,'species_key'),by=c('fteg'='tegund')) %>%
+  left_join(tbl(mar,'port2sr'),by='hofn') %>%
+  mutate(sampling_type='LND',
+         gear = nvl(gear,'LLN')) %>% 
+  select(weight_total=magn_oslaegt,sampling_type,areacell, vessel,species,year=ar,month=man,
+         gear) %>% 
+  collect(n=Inf)
+  
+
+mfdb_import_survey(mdb,
+                   data_source = 'fiskifelagid_pre82.landings',
+                   data_in = fiskifelagid_landing_pre82 %>% 
+                     select(-vessel) %>% 
+                            as.data.frame())
+
+mfdb_import_vessel_taxonomy(mdb,
+                            data.frame(name=c('100000-0', '100044-0', '100084-0', '100088-0', '100101-0', '100102-0', '100103-0', 
+                                              '100104-0', '100127-0', '100129-0', '100133-0', '100144-0', '100199-0', '100236-0', 
+                                              '100237-0', '100252-0', '100338-0', '100341-0', '100362-0', '100378-0', '100383-0', 
+                                              '100388-0', '100402-0', '100410-0', '100461-0', '100481-0', '100486-0', '100501-0', 
+                                              '100617-0', '100701-0', '100702-0', '100706-0', '1008-0', '100904-0', '100971-0',                                               
+                                              '100989-0', '101013-0', '101042-0', '101095-0', '101101-0', '101104-0', '101105-0', 
+                                              '101106-0', '101109-0', '101112-0', '101115-0', '101265-0', '101300-0', '101301-0',
+                                              '101303-0'), 
+                                       length=NA,tonnage=NA,power=NA,full_name = 'Old unknown vessel'))
+
+mfdb_import_vessel_taxonomy(mdb,
+                            data.frame(name=c('101312-0', '101315-0', '101316-0', '101321-0', '101325-0', 
+                                              '101328-0', '101329-0', '101330-0', '101335-0', '101345-0', 
+                                              '101502-0', '101701-0', '101702-0', '101716-0', '101719-0', 
+                                              '101720-0', '101724-0', '101726-0', '101730-0', '101915-0', 
+                                              '101917-0', '101921-0', '101940-0', '101950-0', '101958-0',
+                                              '101968-0', '101992-0', '102102-0', '102105-0', '102107-0',
+                                              '102115-0', '102116-0', '102123-0', '102134-0', '102146-0',
+                                              '102147-0', '102160-0', '102165-0', '102168-0', '102181-0', 
+                                              '1022-0', '102306-0', '102316-0', '102318-0', '102320-0',
+                                              '1024-0', '102501-0', '102506-0', '102515-0', '102517-0'), 
+                                       length=NA, tonnage=NA, power=NA, full_name = 'Old unknown vessel'))
+
+
+
+mfdb_import_vessel_taxonomy(mdb,
+                            data.frame(name=c('101312-0', '101315-0', '101316-0', '101321-0', '101325-0', 
+                                              '101328-0', '101329-0', '101330-0', '101335-0', '101345-0', 
+                                              '101502-0', '101701-0', '101702-0', '101716-0', '101719-0', 
+                                              '101720-0', '101724-0', '101726-0', '101730-0', '101915-0', 
+                                              '101917-0', '101921-0', '101940-0', '101950-0', '101958-0',
+                                              '101968-0', '101992-0', '102102-0', '102105-0', '102107-0',
+                                              '102115-0', '102116-0', '102123-0', '102134-0', '102146-0',
+                                              '102147-0', '102160-0', '102165-0', '102168-0', '102181-0', 
+                                              '1022-0', '102306-0', '102316-0', '102318-0', '102320-0',
+                                              '1024-0', '102501-0', '102506-0', '102515-0', '102517-0'), 
+                                       length=NA, tonnage=NA, power=NA, full_name = 'Old unknown vessel'))
 
