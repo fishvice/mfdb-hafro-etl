@@ -60,11 +60,12 @@ mfdb_import_temperature(mdb,
 
 ## BEGIN hack
 ## species mapping
-data.frame(tegund =  c(1:11, 19, 21, 22,
-                       23, 25, 27, 30, 31, 48, 14,24 ),
+data.frame(tegund =  c(1:19,21:28, 30, 31, 48),
            species = c('COD','HAD','POK','WHG','RED','LIN','BLI','USK',
-                       'CAA','RNG','REB','GSS','HAL','GLH',
-                       'PLE','WIT','DAB','HER','CAP','LUM','MON','LEM')) %>%
+                       'CAA','RNG','REB','SYR','CAS','MON','SKT','DGS',
+                       'GSK','POR','GSS','HAL','GLH',
+                       'PLE','LEM','WIT','MEG','DAB','PLA',
+                       'HER','CAP','LUM')) %>% 
   dbWriteTable(mar,'species_key',.,overwrite = TRUE)
 
 ## gear mapping
